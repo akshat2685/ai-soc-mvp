@@ -1,0 +1,24 @@
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables and secrets
+.env
+backend/.env
+
+# Local database and generated reports
+backend/soc.db
+backend/reports/
+*.pdf
+
+# Editor/IDE settings
+.vscode/
+.idea/
+.DS_Store
