@@ -12,10 +12,10 @@ Full-featured API with:
 - WebSocket real-time feed
 - Health checks and metrics
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, BackgroundTasks, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest, APIKeyCreate, VulnerabilityRecord, VulnerabilityUpload, DevSecOpsAlert, AssetRecord, AssetInventoryUpload, IDSAlertLog
+from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest, APIKeyCreate, VulnerabilityRecord, VulnerabilityUpload, DevSecOpsAlert, AssetRecord, AssetInventoryUpload, IDSAlertLog, VirtualPatchRecord, VirtualPatchUpload, KnowledgeUpload
 from database import init_db, get_db
 from detection import check_for_abuse, calculate_fingerprint, update_entity_baselines
 from threat_intel import enrich_ip
@@ -28,6 +28,7 @@ from rate_limiter import IngestRateLimiter
 from response import ResponseEngine
 import uvicorn
 import json
+import re
 import asyncio
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -257,6 +258,34 @@ async def ingest_log(log: TelemetryLog, request: Request, background_tasks: Back
             await asyncio.sleep(5)  # Tarpit: waste blocked attacker connection
             raise HTTPException(status_code=403, detail="Blocked due to suspicious activity.")
 
+    # Apply Virtual Patches (WAF Rules)
+    with get_db() as conn:
+        cur = conn.execute("SELECT rule_name, pattern_regex, action FROM virtual_patches WHERE target_endpoint = '*' OR target_endpoint = ?", (log.endpoint or "",))
+        for row in cur.fetchall():
+            pattern = row["pattern_regex"]
+            # Check headers and parameters for malicious payload
+            payload_str = str(log.headers) if log.headers else ""
+            if log.user_agent: payload_str += f" {log.user_agent}"
+            
+            try:
+                if re.search(pattern, payload_str, re.IGNORECASE):
+                    if row["action"] == "BLOCK":
+                        # Trigger an alert for WAF block
+                        from detection import trigger_incident
+                        trigger_incident(
+                            title=f"WAF Block: {row['rule_name']}",
+                            attack_type="WAF Virtual Patch Match",
+                            severity="HIGH",
+                            attacker_ip=log.source_ip,
+                            events=[log.model_dump()],
+                            device_fingerprint=device_fp,
+                            confidence_score=95,
+                            background_tasks=background_tasks
+                        )
+                        raise HTTPException(status_code=403, detail="Blocked by Web Application Firewall.")
+            except re.error:
+                pass # Ignore invalid regex rules
+
     # Rate limiting with a Tarpit delay
     if not _rate_limiter.check(client_ip):
         await asyncio.sleep(3)  # Tarpit: slow down volumetric/scraping rate
@@ -393,13 +422,62 @@ async def get_alert_details(alert_id: int):
     except (json.JSONDecodeError, TypeError):
         pass
 
+    # Resolve MITRE Mapping
+    from mitre_engine import get_mitre_mapping
+    mitre_map = get_mitre_mapping(alert.get('attack_type'))
+
     return {
         "alert": alert,
         "related_logs": related_logs,
         "related_responses": related_responses,
         "enrichment": enrichment,
         "evidence_citations": citations,
+        "mitre_mapping": mitre_map,
     }
+
+
+@app.get("/mitre/mappings")
+async def list_mitre_mappings():
+    from mitre_engine import get_all_mitre_mappings
+    return get_all_mitre_mappings()
+
+
+@app.get("/alerts/{alert_id}/mitre")
+async def get_alert_mitre(alert_id: int):
+    with get_db() as conn:
+        cur = conn.execute("SELECT attack_type FROM alerts WHERE id = ?", (alert_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        attack_type = row["attack_type"]
+    
+    from mitre_engine import get_mitre_mapping
+    return get_mitre_mapping(attack_type)
+
+
+@app.get("/alerts/{alert_id}/investigation")
+async def get_alert_investigation(alert_id: int):
+    with get_db() as conn:
+        cur = conn.execute("SELECT * FROM investigations WHERE alert_id = ?", (alert_id,))
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+    
+    # If not found, run it on-demand
+    from investigation_engine import run_investigation
+    result = run_investigation(alert_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.post("/alerts/{alert_id}/investigate")
+async def trigger_alert_investigation(alert_id: int):
+    from investigation_engine import run_investigation
+    result = run_investigation(alert_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
 
 
 @app.post("/alerts/{alert_id}/verdict")
@@ -857,6 +935,29 @@ async def siem_export(user: dict = Depends(require_auth)):
     return JSONResponse(content={"cef": cef_lines}, media_type="application/json")
 
 
+@app.post("/waf/virtual-patches")
+async def add_virtual_patches(payload: VirtualPatchUpload, user: dict = Depends(require_auth)):
+    """Deploy Virtual Patches (WAF rules) to block specific payloads at the network layer dynamically."""
+    with get_db() as conn:
+        for patch in payload.patches:
+            conn.execute(
+                "INSERT INTO virtual_patches (rule_name, target_endpoint, pattern_regex, action) "
+                "VALUES (?, ?, ?, ?)",
+                (patch.rule_name, patch.target_endpoint, patch.pattern_regex, patch.action)
+            )
+        conn.commit()
+    return {"status": "ok", "message": f"Successfully deployed {len(payload.patches)} virtual patches."}
+
+
+@app.get("/waf/virtual-patches")
+async def list_virtual_patches(user: dict = Depends(require_auth)):
+    """List active Virtual Patches (WAF rules)."""
+    with get_db() as conn:
+        cur = conn.execute("SELECT * FROM virtual_patches ORDER BY created_at DESC")
+        patches = [dict(row) for row in cur.fetchall()]
+    return patches
+
+
 @app.post("/vulnerabilities/upload")
 async def upload_vulnerabilities(payload: VulnerabilityUpload, user: dict = Depends(require_auth)):
     """Ingests vulnerability assessment reports from authorized security scanners."""
@@ -951,6 +1052,16 @@ async def ingest_ids_alert(alert: IDSAlertLog, request: Request):
         cur_vulns = conn.execute("SELECT cve_id, title FROM vulnerabilities WHERE ip_address = ?", (alert.target_ip,))
         matching_vulns = [dict(row) for row in cur_vulns.fetchall()]
 
+    # Check if any matching vulnerability is in CISA KEV
+    from threat_intel_engine import check_cve_kev
+    kev_vulnerable = False
+    kev_cves = []
+    for v in matching_vulns:
+        cve_id = v.get("cve_id")
+        if cve_id and check_cve_kev(cve_id):
+            kev_vulnerable = True
+            kev_cves.append(cve_id)
+
     # Prioritization logic:
     # If target has critical vulnerabilities AND the asset is HIGH criticality, elevate the alert to CRITICAL.
     remediation_notes = "No known matching target vulnerabilities. Monitor normally."
@@ -958,7 +1069,10 @@ async def ingest_ids_alert(alert: IDSAlertLog, request: Request):
         vuln_cves = [v["cve_id"] for v in matching_vulns if v["cve_id"]]
         remediation_notes = f"Target host has known vulnerabilities: {', '.join(vuln_cves)}. Apply security patches immediately."
         
-        if asset_criticality == "HIGH":
+        if kev_vulnerable:
+            final_severity = "CRITICAL"
+            remediation_notes += f" CRITICAL WARNING: Target contains CVE(s) actively exploited in the wild (CISA KEV): {', '.join(kev_cves)}."
+        elif asset_criticality == "HIGH":
             final_severity = "CRITICAL"
             remediation_notes += " Priority elevated: Host contains high business criticality data."
         elif final_severity in ("MEDIUM", "LOW"):
@@ -972,7 +1086,8 @@ async def ingest_ids_alert(alert: IDSAlertLog, request: Request):
         "protocol": alert.protocol,
         "payload_hex": alert.payload_hex,
         "asset_criticality": asset_criticality,
-        "matched_vulnerabilities": matching_vulns
+        "matched_vulnerabilities": matching_vulns,
+        "cisa_kev_exploited": kev_cves
     })
     
     with get_db() as conn:
@@ -999,3 +1114,77 @@ async def ingest_ids_alert(alert: IDSAlertLog, request: Request):
         "severity_assigned": final_severity, 
         "remediation_recommendation": remediation_notes
     }
+
+
+@app.post("/knowledge/ingest")
+async def ingest_knowledge(payload: KnowledgeUpload, user: dict = Depends(require_auth)):
+    """Ingests security playbooks or JSON threat intelligence into the Qdrant RAG vector store."""
+    try:
+        from rag_engine import ingest_text_document
+    except ImportError:
+        raise HTTPException(status_code=500, detail="RAG Engine is not installed or configured.")
+
+    total_chunks = 0
+    for doc in payload.documents:
+        metadata = {"title": doc.title, "source": doc.source}
+        chunks = ingest_text_document(doc.content, metadata)
+        total_chunks += chunks
+
+    return {"status": "ok", "message": f"Successfully embedded {len(payload.documents)} documents into {total_chunks} vector chunks."}
+
+
+@app.post("/knowledge/upload-pdf")
+async def upload_pdf_playbook(file: UploadFile = File(...), user: dict = Depends(require_auth)):
+    """Uploads, parses, and ingests a PDF security playbook into the Qdrant vector store."""
+    try:
+        from rag_engine import ingest_pdf_bytes
+    except ImportError:
+        raise HTTPException(status_code=500, detail="RAG Engine is not installed or configured.")
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    try:
+        pdf_bytes = await file.read()
+        chunks = ingest_pdf_bytes(pdf_bytes, file.filename)
+        return {
+            "status": "ok",
+            "filename": file.filename,
+            "chunks_embedded": chunks,
+            "message": f"Successfully parsed and embedded {chunks} chunks from PDF playbook."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
+
+
+
+# ══════════════════════════════════════════════════════════════
+#  THREAT INTELLIGENCE ENDPOINTS
+# ══════════════════════════════════════════════════════════════
+
+@app.post("/threat-intel/kev/sync")
+async def sync_kev(user: dict = Depends(require_auth)):
+    """Triggers synchronization of the CISA Known Exploited Vulnerabilities feed."""
+    from threat_intel_engine import sync_cisa_kev
+    result = await sync_cisa_kev()
+    if result["status"] == "error":
+        raise HTTPException(status_code=500, detail=result["message"])
+    return result
+
+
+@app.get("/threat-intel/kev/{cve_id}")
+async def get_kev_details(cve_id: str, user: dict = Depends(require_auth)):
+    """Retrieves threat intelligence metadata for a specific CVE from KEV catalog."""
+    from threat_intel_engine import check_cve_kev
+    vuln = check_cve_kev(cve_id)
+    if not vuln:
+        raise HTTPException(status_code=404, detail=f"CVE {cve_id} not found in KEV catalog")
+    return vuln
+
+
+@app.get("/threat-intel/ip/{ip}")
+async def get_ip_reputation(ip: str, user: dict = Depends(require_auth)):
+    """Fetches real-time threat intelligence reputation data for an IP."""
+    from threat_intel import enrich_ip
+    result = enrich_ip(ip)
+    return result

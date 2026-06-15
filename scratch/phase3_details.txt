@@ -1,0 +1,196 @@
+<USER_REQUEST>
+PROJECT: EDYSOR AI-NATIVE SECURITY OPERATIONS CENTER (SOC)
+
+OBJECTIVE
+
+Transform the existing SOC MVP into a production-grade AI-native Security Operations Center inspired by CrowdStrike Charlotte AI, Microsoft Security Copilot, Google SecOps, and Cortex XSIAM.
+
+The platform must operate as an AI security analyst that assists and accelerates human analysts through investigation automation, threat intelligence enrichment, knowledge retrieval, risk prioritization, and executive reporting.
+
+==================================================
+PHASE 1 – AI INVESTIGATION ENGINE
+=================================
+
+Build a fully automated investigation pipeline.
+
+For every alert:
+
+1. Collect all related logs.
+2. Collect asset inventory information.
+3. Collect vulnerability records.
+4. Collect user activity history.
+5. Collect previous incidents.
+6. Correlate all evidence.
+7. Generate attack timeline.
+8. Calculate confidence score.
+9. Determine probable root cause.
+10. Recommend remediation actions.
+
+OUTPUT REQUIREMENTS
+
+Every incident must contain:
+
+* Executive Summary
+* Technical Summary
+* Timeline of Events
+* Impact Assessment
+* Confidence Score
+* Root Cause Analysis
+* Recommended Actions
+* Supporting Evidence
+
+The AI should explain its reasoning step-by-step.
+
+==================================================
+PHASE 2 – MITRE ATT&CK MAPPING
+==============================
+
+Integrate MITRE ATT&CK knowledge.
+
+For every incident:
+
+* Identify ATT&CK Tactics
+* Identify ATT&CK Techniques
+* Identify ATT&CK Sub-Techniques
+* Explain why the mapping exists
+* Recommend ATT&CK-aligned mitigations
+
+Display:
+
+* ATT&CK Navigator style view
+* Technique heatmaps
+* Most frequent techniques
+* Technique trends over time
+
+==================================================
+PHASE 3 – THREAT INTELLIGENCE ENGINE
+====================================
+
+Build threat intelligence enrichment.
+
+Support ingestion of:
+
+* CVE feeds
+* Known exploited vulnerability 
+<truncated 3448 bytes>
+dings
+* Major Incidents
+* Risk Changes
+* Vulnerability Trends
+* Recommendations
+
+Support PDF export.
+
+==================================================
+PHASE 10 – MULTI-TENANT ARCHITECTURE
+====================================
+
+Support multiple organizations.
+
+Requirements:
+
+* Tenant isolation
+* Tenant-specific assets
+* Tenant-specific incidents
+* Tenant-specific API keys
+* Tenant-specific reports
+
+Implement role-based access control.
+
+==================================================
+PRODUCTION REQUIREMENTS
+=======================
+
+Frontend:
+
+* Next.js
+* TypeScript
+* TailwindCSS
+
+Backend:
+
+* FastAPI
+* Python
+
+Database:
+
+* PostgreSQL
+
+Search:
+
+* Elasticsearch
+
+Vector Database:
+
+* Qdrant
+
+Caching:
+
+* Redis
+
+Messaging:
+
+* Kafka
+
+Authentication:
+
+* Keycloak
+
+Observability:
+
+* Prometheus
+* Grafana
+* OpenTelemetry
+
+Deployment:
+
+* Docker
+* Kubernetes
+
+Security:
+
+* Audit logging
+* Encryption at rest
+* Encryption in transit
+* Role-based access control
+* Secrets management
+
+==================================================
+SUCCESS CRITERIA
+================
+
+The platform should behave like an AI-powered SOC analyst.
+
+The system must reduce manual investigation effort by at least 80%.
+
+The AI must explain all conclusions, provide evidence, cite sources from the knowledge base, and maintain analyst approval workflows for critical actions.
+
+The platform should feel comparable to modern AI-assisted SOC products rather than a traditional SIEM dashboard.
+
+
+
+understand this deeply 
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-06-15T16:39:38+05:30.
+
+The user's current state is as follows:
+Active Document: c:\Users\ijain\.gemini\antigravity-ide\scratch\AKSHAT_software_engineer\backend\services\llm_service.py (LANGUAGE_PYTHON)
+Cursor is on line: 1
+Other open documents:
+- c:\Users\ijain\.gemini\antigravity-ide\scratch\AKSHAT_software_engineer\backend\services\llm_service.py (LANGUAGE_PYTHON)
+</ADDITIONAL_METADATA>Created At: 2026-06-15T11:18:54Z
+Completed At: 2026-06-15T11:18:55Z
+File Path: `file:///c:/Users/ijain/.gemini/antigravity-ide/scratch/ai-soc-mvp/scratch/matches.txt`
+Total Lines: 13
+Total Bytes: 24668
+Showing lines 1 to 13
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: {"step_index":59,"source":"MODEL","type":"VIEW_FILE","status":"DONE","created_at":"2026-06-15T05:12:29Z","content":"Created At: 2026-06-15T05:12:29Z\nCompleted At: 2026-06-15T05:12:29Z\nFile Path: `file:///c:/Users/ijain/.gemini/antigravity-ide/scratch/ai-soc-mvp/backend/detection.py`\nTotal Lines: 282\nTotal Bytes: 11992\nShowing lines 138 to 250\nThe following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.\n138: # ── Trigger Incident ──\n139: \n140: def trigger_incident(title: str, attack_type: str, severity: str, attacker_ip: str,\n141:                      events: list, device_fingerprint: str = None,\n142:                      confidence_score: int = 80, evidence_citations: list = None):\n143:     \"\"\"Process a detection result: AI triage → save alert → correlate → respond → broadcast.\"\"\"\n144: \n145:     evidence = {\n146:         \"source_ip\": attacker_ip,\n147:         \"event_count\": len(events),\n148:         \"attack_type\": attack_type,\n149:         \"event_types\": list(set(e.get('event_type', '') for e in events)),\n150:         \"user_agents\": list(set(e.get('user_agent', '') for e in events if e.get('user_agent'))),\n151:         \"endpoints\": list(set(e.get('endpoint', '') for e in events if e.get('endpoint'))),\n152:         \"user_ids\": list(set(e.get('user_id', '') for e in events if e.get('user_id'))),\n153:         \"device_fin
+<truncated 21164 bytes>
+"LineContent\":\"    \\u003cmeta name=\\\"description\\\" content=\\\"AI-powered Security Operations Center with tiered autonomous response, approval workflows, and threat intelligence.\\\"\\u003e\"}"}
+10: {"step_index":844,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-06-15T11:18:24Z","tool_calls":[{"name":"grep_search","args":{"CaseInsensitive":"true","MatchPerLine":"true","Query":"\"PHASE 3\"","SearchPath":"\"C:\\\\Users\\\\ijain\\\\.gemini\\\\antigravity-ide\\\\brain\\\\d11a618c-3f80-4719-81af-37842e57a745\\\\.system_generated\\\\logs\\\\transcript.jsonl\"","toolAction":"\"Searching for Phase 3 details in transcript\"","toolSummary":"\"Grep search transcript.jsonl\""}}]}
+11: {"step_index":848,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-06-15T11:18:30Z","tool_calls":[{"name":"grep_search","args":{"CaseInsensitive":"true","MatchPerLine":"true","Query":"\"PHASE 3\"","SearchPath":"\"C:\\\\Users\\\\ijain\\\\.gemini\\\\antigravity-ide\\\\brain\\\\d11a618c-3f80-4719-81af-37842e57a745\\\\.system_generated\\\\logs\\\\transcript.jsonl\"","toolAction":"\"Grep searching transcript.jsonl for Phase 3\"","toolSummary":"\"Grep search transcript.jsonl\""}}]}
+12: {"step_index":854,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-06-15T11:18:39Z","tool_calls":[{"name":"run_command","args":{"CommandLine":"\".venv\\\\Scripts\\\\python.exe -c \\\"import json; f=open(r'C:\\\\Users\\\\ijain\\\\.gemini\\\\antigravity-ide\\\\brain\\\\d11a618c-3f80-4719-81af-37842e57a745\\\\.system_generated\\\\logs\\\\transcript.jsonl', encoding='utf-8'); [print(line) for line in f if 'PHASE 3' in line or 'Threat Intelligence' in line][:5]\\\"\"","Cwd":"\"c:\\\\Users\\\\ijain\\\\.gemini\\\\antigravity-ide\\\\scratch\\\\ai-soc-mvp\"","WaitMsBeforeAsync":"5000","toolAction":"\"Searching transcript.jsonl via Python command\"","toolSummary":"\"Python search command\""}}]}
+13: 
+The above content shows the entire, complete file contents of the requested file.

@@ -1,0 +1,384 @@
+Created At: 2026-06-15T04:57:03Z
+Completed At: 2026-06-15T04:57:03Z
+File Path: `file:///c:/Users/ijain/.gemini/antigravity-ide/scratch/ai-soc-mvp/backend/main.py`
+Total Lines: 701
+Total Bytes: 28195
+Showing lines 1 to 701
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: """AI SOC Platform API — FastAPI Backend.
+2: 
+3: Full-featured API with:
+4: - Log ingestion with rate limiting
+5: - Alert, incident, and response management
+6: - Tiered autonomous response with approval gates
+7: - Immutable audit logging
+8: - JWT authentication with RBAC
+9: - AI chat with NL-to-SQL
+10: - PDF reports and weekly digests
+11: - Draft deterrence emails with review workflow
+12: - WebSocket real-time feed
+13: - Health checks and metrics
+14: """
+15: from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends
+16: from fastapi.middleware.cors import CORSMiddleware
+17: from fastapi.responses import FileResponse, JSONResponse
+18: from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest
+19: from database import init_db, get_db
+20: from detection import check_for_abuse, calculate_fingerprint, update_entity_baselines
+21: from threat_intel import enrich_ip
+22: from chat import handle_chat
+23: from pdf_report import generate_pdf_report
+24: from digest_report import generate_digest
+25: from agentic_investigation import build_attack_graph
+26: from auth import authenticate, register_user, verify_token, get_user_from_token, has_permission
+27: from rate_limiter import IngestRateLimiter
+28: from response import ResponseEngine
+29: import uvicorn
+30: import json
+31: import asyncio
+32: from contextlib import asynccontextmanager
+33: from dotenv import load_dotenv
+34: 
+35: load_dotenv()
+36: 
+37: # ── Rate Limiter ──
+38: _rate_limiter = IngestRateLimiter(max_requests=500, w
+<truncated 28043 bytes>
+_status,
+652:         "websocket_clients": len(connected_clients),
+653:     }
+654: 
+655: 
+656: @app.get("/metrics")
+657: async def metrics():
+658:     """Prometheus-compatible metrics endpoint."""
+659:     with get_db() as conn:
+660:         alerts = conn.execute("SELECT COUNT(*) as c FROM alerts").fetchone()['c']
+661:         incidents = conn.execute("SELECT COUNT(*) as c FROM incidents").fetchone()['c']
+662:         logs = conn.execute("SELECT COUNT(*) as c FROM logs").fetchone()['c']
+663:         blocks = conn.execute(
+664:             "SELECT COUNT(*) as c FROM responses WHERE status = 'ACTIVE' "
+665:             "AND action_type IN ('TEMP_BLOCK', 'PERM_BLOCK')"
+666:         ).fetchone()['c']
+667:         pending = conn.execute(
+668:             "SELECT COUNT(*) as c FROM pending_approvals WHERE status = 'PENDING'"
+669:         ).fetchone()['c']
+670: 
+671:     metrics_text = f"""# HELP soc_alerts_total Total number of alerts
+672: # TYPE soc_alerts_total counter
+673: soc_alerts_total {alerts}
+674: 
+675: # HELP soc_incidents_total Total number of incidents
+676: # TYPE soc_incidents_total counter
+677: soc_incidents_total {incidents}
+678: 
+679: # HELP soc_logs_total Total number of ingested logs
+680: # TYPE soc_logs_total counter
+681: soc_logs_total {logs}
+682: 
+683: # HELP soc_active_blocks Current number of active blocks
+684: # TYPE soc_active_blocks gauge
+685: soc_active_blocks {blocks}
+686: 
+687: # HELP soc_pending_approvals Current number of pending approvals
+688: # TYPE soc_pending_approvals gauge
+689: soc_pending_approvals {pending}
+690: 
+691: # HELP soc_ws_clients Current number of WebSocket clients
+692: # TYPE soc_ws_clients gauge
+693: soc_ws_clients {len(connected_clients)}
+694: """
+695:     return JSONResponse(content=metrics_text, media_type="text/plain")
+696: 
+697: 
+698: if __name__ == "__main__":
+699:     port = int(os.getenv("PORT", 8000))
+700:     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+701: 
+The above content shows the entire, complete file contents of the requested file.
+Created At: 2026-06-15T05:35:03Z
+Completed At: 2026-06-15T05:35:03Z
+File Path: `file:///c:/Users/ijain/.gemini/antigravity-ide/scratch/ai-soc-mvp/backend/main.py`
+Total Lines: 711
+Total Bytes: 28670
+Showing lines 1 to 711
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: """AI SOC Platform API — FastAPI Backend.
+2: 
+3: Full-featured API with:
+4: - Log ingestion with rate limiting
+5: - Alert, incident, and response management
+6: - Tiered autonomous response with approval gates
+7: - Immutable audit logging
+8: - JWT authentication with RBAC
+9: - AI chat with NL-to-SQL
+10: - PDF reports and weekly digests
+11: - Draft deterrence emails with review workflow
+12: - WebSocket real-time feed
+13: - Health checks and metrics
+14: """
+15: from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, BackgroundTasks
+16: from fastapi.middleware.cors import CORSMiddleware
+17: from fastapi.responses import FileResponse, JSONResponse
+18: from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest
+19: from database import init_db, get_db
+20: from detection import check_for_abuse, calculate_fingerprint, update_entity_baselines
+21: from threat_intel import enrich_ip
+22: from chat import handle_chat
+23: from pdf_report import generate_pdf_report
+24: from digest_report import generate_digest
+25: from agentic_investigation import build_attack_graph
+26: from auth import authenticate, register_user, verify_token, get_user_from_token, has_permission
+27: from rate_limiter import IngestRateLimiter
+28: from response import ResponseEngine
+29: import uvicorn
+30: import json
+31: import asyncio
+32: from contextlib import asynccontextmanager
+33: from dotenv import load_dotenv
+34: 
+35: load_dotenv()
+36: 
+37: # ── Rate Limiter ──
+38: _rate_limiter = IngestRateLimiter(ma
+<truncated 28568 bytes>
+_status,
+662:         "websocket_clients": len(connected_clients),
+663:     }
+664: 
+665: 
+666: @app.get("/metrics")
+667: async def metrics():
+668:     """Prometheus-compatible metrics endpoint."""
+669:     with get_db() as conn:
+670:         alerts = conn.execute("SELECT COUNT(*) as c FROM alerts").fetchone()['c']
+671:         incidents = conn.execute("SELECT COUNT(*) as c FROM incidents").fetchone()['c']
+672:         logs = conn.execute("SELECT COUNT(*) as c FROM logs").fetchone()['c']
+673:         blocks = conn.execute(
+674:             "SELECT COUNT(*) as c FROM responses WHERE status = 'ACTIVE' "
+675:             "AND action_type IN ('TEMP_BLOCK', 'PERM_BLOCK')"
+676:         ).fetchone()['c']
+677:         pending = conn.execute(
+678:             "SELECT COUNT(*) as c FROM pending_approvals WHERE status = 'PENDING'"
+679:         ).fetchone()['c']
+680: 
+681:     metrics_text = f"""# HELP soc_alerts_total Total number of alerts
+682: # TYPE soc_alerts_total counter
+683: soc_alerts_total {alerts}
+684: 
+685: # HELP soc_incidents_total Total number of incidents
+686: # TYPE soc_incidents_total counter
+687: soc_incidents_total {incidents}
+688: 
+689: # HELP soc_logs_total Total number of ingested logs
+690: # TYPE soc_logs_total counter
+691: soc_logs_total {logs}
+692: 
+693: # HELP soc_active_blocks Current number of active blocks
+694: # TYPE soc_active_blocks gauge
+695: soc_active_blocks {blocks}
+696: 
+697: # HELP soc_pending_approvals Current number of pending approvals
+698: # TYPE soc_pending_approvals gauge
+699: soc_pending_approvals {pending}
+700: 
+701: # HELP soc_ws_clients Current number of WebSocket clients
+702: # TYPE soc_ws_clients gauge
+703: soc_ws_clients {len(connected_clients)}
+704: """
+705:     return JSONResponse(content=metrics_text, media_type="text/plain")
+706: 
+707: 
+708: if __name__ == "__main__":
+709:     port = int(os.getenv("PORT", 8000))
+710:     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+711: 
+The above content shows the entire, complete file contents of the requested file.
+<USER_REQUEST>
+PROJECT: EDYSOR AI-NATIVE SECURITY OPERATIONS CENTER (SOC)
+
+OBJECTIVE
+
+Transform the existing SOC MVP into a production-grade AI-native Security Operations Center inspired by CrowdStrike Charlotte AI, Microsoft Security Copilot, Google SecOps, and Cortex XSIAM.
+
+The platform must operate as an AI security analyst that assists and accelerates human analysts through investigation automation, threat intelligence enrichment, knowledge retrieval, risk prioritization, and executive reporting.
+
+==================================================
+PHASE 1 – AI INVESTIGATION ENGINE
+=================================
+
+Build a fully automated investigation pipeline.
+
+For every alert:
+
+1. Collect all related logs.
+2. Collect asset inventory information.
+3. Collect vulnerability records.
+4. Collect user activity history.
+5. Collect previous incidents.
+6. Correlate all evidence.
+7. Generate attack timeline.
+8. Calculate confidence score.
+9. Determine probable root cause.
+10. Recommend remediation actions.
+
+OUTPUT REQUIREMENTS
+
+Every incident must contain:
+
+* Executive Summary
+* Technical Summary
+* Timeline of Events
+* Impact Assessment
+* Confidence Score
+* Root Cause Analysis
+* Recommended Actions
+* Supporting Evidence
+
+The AI should explain its reasoning step-by-step.
+
+==================================================
+PHASE 2 – MITRE ATT&CK MAPPING
+==============================
+
+Integrate MITRE ATT&CK knowledge.
+
+For every incident:
+
+* Identify ATT&CK Tactics
+* Identify ATT&CK Techniques
+* Identify ATT&CK Sub-Techniques
+* Explain why the mapping exists
+* Recommend ATT&CK-aligned mitigations
+
+Display:
+
+* ATT&CK Navigator style view
+* Technique heatmaps
+* Most frequent techniques
+* Technique trends over time
+
+==================================================
+PHASE 3 – THREAT INTELLIGENCE ENGINE
+====================================
+
+Build threat intelligence enrichment.
+
+Support ingestion of:
+
+* CVE feeds
+* Known exploited vulnerability 
+<truncated 3448 bytes>
+dings
+* Major Incidents
+* Risk Changes
+* Vulnerability Trends
+* Recommendations
+
+Support PDF export.
+
+==================================================
+PHASE 10 – MULTI-TENANT ARCHITECTURE
+====================================
+
+Support multiple organizations.
+
+Requirements:
+
+* Tenant isolation
+* Tenant-specific assets
+* Tenant-specific incidents
+* Tenant-specific API keys
+* Tenant-specific reports
+
+Implement role-based access control.
+
+==================================================
+PRODUCTION REQUIREMENTS
+=======================
+
+Frontend:
+
+* Next.js
+* TypeScript
+* TailwindCSS
+
+Backend:
+
+* FastAPI
+* Python
+
+Database:
+
+* PostgreSQL
+
+Search:
+
+* Elasticsearch
+
+Vector Database:
+
+* Qdrant
+
+Caching:
+
+* Redis
+
+Messaging:
+
+* Kafka
+
+Authentication:
+
+* Keycloak
+
+Observability:
+
+* Prometheus
+* Grafana
+* OpenTelemetry
+
+Deployment:
+
+* Docker
+* Kubernetes
+
+Security:
+
+* Audit logging
+* Encryption at rest
+* Encryption in transit
+* Role-based access control
+* Secrets management
+
+==================================================
+SUCCESS CRITERIA
+================
+
+The platform should behave like an AI-powered SOC analyst.
+
+The system must reduce manual investigation effort by at least 80%.
+
+The AI must explain all conclusions, provide evidence, cite sources from the knowledge base, and maintain analyst approval workflows for critical actions.
+
+The platform should feel comparable to modern AI-assisted SOC products rather than a traditional SIEM dashboard.
+
+
+
+understand this deeply 
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-06-15T16:39:38+05:30.
+
+The user's current state is as follows:
+Active Document: c:\Users\ijain\.gemini\antigravity-ide\scratch\AKSHAT_software_engineer\backend\services\llm_service.py (LANGUAGE_PYTHON)
+Cursor is on line: 1
+Other open documents:
+- c:\Users\ijain\.gemini\antigravity-ide\scratch\AKSHAT_software_engineer\backend\services\llm_service.py (LANGUAGE_PYTHON)
+</ADDITIONAL_METADATA>Created At: 2026-06-15T11:19:14Z
+Completed At: 2026-06-15T11:19:17Z
+
+				The command completed successfully.
+				Output:
+				{"step_index":673,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-06-15T11:09:38Z","content":"<USER_REQUEST>\nPROJECT: EDYSOR AI-NATIVE SECURITY OPERATIONS CENTER (SOC)\r\n\r\nOBJECTIVE\r\n\r\nTransform the existing SOC MVP into a production-grade AI-native Security Operations Center inspired by CrowdStrike Charlotte AI, Microsoft Security Copilot, Google SecOps, and Cortex XSIAM.\r\n\r\nThe platform must operate as an AI security analyst that assists and accelerates human analysts through investigation automation, threat intelligence enrichment, knowledge retrieval, risk prioritization, and executive reporting.\r\n\r\n==================================================\r\nPHASE 1 � AI INVESTIGATION ENGINE\r\n=================================\r\n\r\nBuild a fully automated investigation pipeline.\r\n\r\nFor every alert:\r\n\r\n1. Collect all related logs.\r\n2. Collect asset inventory information.\r\n3. Collect vulnerability records.\r\n4. Collect user activity history.\r\n5. Collect previous incidents.\r\n6. Correlate all evidence.\r\n7. Generate attack timeline.\r\n8. Calculate confidence score.\r\n9. Determine probable root cause.\r\n10. Recommend remediation actions.\r\n\r\nOUTPUT REQUIREMENTS\r\n\r\nEvery incident must contain:\r\n\r\n* Executive Summary\r\n* Technical Summary\r\n* Timeline of Events\r\n* Impact Assessment\r\n* Confidence Score\r\n* Root Cause Analysis\r\n* Recommended Actions\r\n* Supporting Evidence\r\n\r\nThe AI should explain its reasoning step-by-step.\r\n\r\n==================================================\r\nPHASE 2 � MITRE ATT&CK MAPPING\r\n==============================\r\n\r\nIntegrate MITRE ATT&CK knowledge.\r\n\r\nFor every incident:\r\n\r\n* Identify ATT&CK Tactics\r\n* Identify ATT&CK Techniques\r\n* Identify ATT&CK Sub-Techniques\r\n* Explain why the mapping exists\r\n* Recommend ATT&CK-aligned mitigations\r\n\r\nDisplay:\r\n\r\n* ATT&CK Navigator style view\r\n* Technique heatmaps\r\n* Most frequ
+

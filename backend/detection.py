@@ -229,6 +229,13 @@ def trigger_incident(title: str, attack_type: str, severity: str, attacker_ip: s
         except Exception as e:
             print(f"[DETECTION] Threat intel enrichment failed: {e}")
 
+        # Run AI Investigation Engine
+        try:
+            from investigation_engine import run_investigation
+            run_investigation(alert_id)
+        except Exception as e:
+            print(f"[DETECTION] Investigation failed: {e}")
+
         # Broadcast update to UI
         broadcast_event({
             "type": "alert_updated",

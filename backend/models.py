@@ -166,3 +166,33 @@ class IDSAlertLog(BaseModel):
         if v.upper() not in allowed:
             raise ValueError(f"severity must be one of: {allowed}")
         return v.upper()
+
+
+class VirtualPatchRecord(BaseModel):
+    rule_name: str = Field(..., max_length=100)
+    target_endpoint: str = Field(..., max_length=500)
+    pattern_regex: str = Field(..., max_length=1000)
+    action: str = Field(..., max_length=20)
+
+    @field_validator('action')
+    @classmethod
+    def validate_action(cls, v):
+        allowed = {'BLOCK', 'LOG'}
+        if v.upper() not in allowed:
+            raise ValueError(f"action must be one of: {allowed}")
+        return v.upper()
+
+
+class VirtualPatchUpload(BaseModel):
+    patches: list[VirtualPatchRecord]
+
+
+class KnowledgeDocument(BaseModel):
+    title: str = Field(..., max_length=200)
+    content: str = Field(..., min_length=1)
+    source: str = Field(default="playbook", max_length=100)
+
+
+class KnowledgeUpload(BaseModel):
+    documents: list[KnowledgeDocument]
+

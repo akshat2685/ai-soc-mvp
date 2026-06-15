@@ -242,6 +242,64 @@ def init_db():
             )
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS virtual_patches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_name TEXT NOT NULL,
+                target_endpoint TEXT NOT NULL,
+                pattern_regex TEXT NOT NULL,
+                action TEXT DEFAULT 'BLOCK',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS investigations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_id INTEGER UNIQUE,
+                incident_id INTEGER,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                collected_logs TEXT,
+                collected_assets TEXT,
+                collected_vulnerabilities TEXT,
+                collected_user_history TEXT,
+                collected_previous_incidents TEXT,
+                correlation_summary TEXT,
+                timeline TEXT,
+                confidence_score INTEGER,
+                probable_root_cause TEXT,
+                recommended_remediation TEXT,
+                executive_summary TEXT,
+                technical_summary TEXT,
+                FOREIGN KEY(alert_id) REFERENCES alerts(id),
+                FOREIGN KEY(incident_id) REFERENCES incidents(id)
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mitre_mappings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                attack_type TEXT UNIQUE NOT NULL,
+                tactic_id TEXT NOT NULL,
+                tactic_name TEXT NOT NULL,
+                technique_id TEXT NOT NULL,
+                technique_name TEXT NOT NULL,
+                description TEXT
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cisa_kev (
+                cve_id TEXT PRIMARY KEY,
+                vendor_project TEXT,
+                product TEXT,
+                vulnerability_name TEXT,
+                date_added TEXT,
+                short_description TEXT,
+                required_action TEXT
+            )
+        """)
+
         # ── Safe Migrations for Existing DBs ──
         _safe_add_column(conn, "logs", "device_fingerprint", "TEXT")
         _safe_add_column(conn, "logs", "geo_country", "TEXT")
@@ -278,6 +336,8 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_attack ON analyst_feedback(attack_type, verdict)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_ip ON assets(ip_address)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_vulns_ip ON vulnerabilities(ip_address)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_investigations_alert_id ON investigations(alert_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_investigations_incident_id ON investigations(incident_id)")
 
         # ── Seed default correlation rules ──
         cur = conn.execute("SELECT COUNT(*) as c FROM correlation_rules")
@@ -312,6 +372,37 @@ def init_db():
                 "INSERT INTO api_keys (key_value, name) VALUES (?, ?)",
                 ("shieldai_dev_api_key_2026", "Default Dev Key")
             )
+
+        # ── Seed default MITRE mappings ──
+        cur = conn.execute("SELECT COUNT(*) as c FROM mitre_mappings")
+        if cur.fetchone()['c'] == 0:
+            mappings = [
+                ("CREDENTIAL_STUFFING", "TA0006", "Credential Access", "T1110.004", "Brute Force: Credential Stuffing", "Attacker stuffing multiple leaked credentials to gain access."),
+                ("ACCOUNT_TAKEOVER", "TA0001", "Initial Access", "T1078", "Valid Accounts", "Attacker gaining unauthorized access through existing valid credentials."),
+                ("BOT_SCRAPING", "TA0009", "Collection", "T1119", "Automated Collection", "Automated bot harvesting sensitive platform resources and data."),
+                ("BUSINESS_LOGIC", "TA0040", "Impact", "T1496", "Resource Hijacking", "Abusing logical flaws in checkout, promotion, or core features."),
+                ("COUPON_ABUSE", "TA0040", "Impact", "T1496", "Resource Hijacking", "Systemic exploitation of discounts or promotional codes."),
+                ("OTP_ABUSE", "TA0040", "Impact", "T1496", "Resource Hijacking", "Exploiting multi-factor / OTP flow to inflate SMS/telephony billing.")
+            ]
+            for m in mappings:
+                conn.execute(
+                    "INSERT INTO mitre_mappings (attack_type, tactic_id, tactic_name, technique_id, technique_name, description) VALUES (?, ?, ?, ?, ?, ?)",
+                    m
+                )
+
+        # ── Seed default CISA KEV entries ──
+        cur = conn.execute("SELECT COUNT(*) as c FROM cisa_kev")
+        if cur.fetchone()['c'] == 0:
+            kevs = [
+                ("CVE-2021-44228", "Apache", "Log4j", "Apache Log4j2 Remote Code Execution Vulnerability", "2021-12-10", "Apache Log4j2 JNDI features do not protect against attacker controlled LDAP and other JNDI related endpoints.", "Apply updates per vendor instructions."),
+                ("CVE-2021-34473", "Microsoft", "Exchange Server", "Microsoft Exchange Server Remote Code Execution Vulnerability", "2021-07-13", "Microsoft Exchange Server vulnerability allowing remote code execution via ProxyShell.", "Apply updates per vendor instructions."),
+                ("CVE-2023-38606", "Apple", "multiple products", "Apple iOS and macOS Kernel State Vulnerability", "2023-07-24", "An issue in Apple kernel state permitting memory access and arbitrary code execution.", "Apply updates per vendor instructions.")
+            ]
+            for k in kevs:
+                conn.execute(
+                    "INSERT INTO cisa_kev (cve_id, vendor_project, product, vulnerability_name, date_added, short_description, required_action) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    k
+                )
 
         conn.commit()
 

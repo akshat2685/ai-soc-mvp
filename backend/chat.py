@@ -130,6 +130,21 @@ def _handle_general_query(query: str) -> dict:
     # Build context for the LLM
     alerts_summary = json.dumps(all_alerts[:30], indent=2, default=str)
 
+    # RAG Knowledge Context
+    knowledge_context = ""
+    try:
+        from rag_engine import search_knowledge
+        docs = search_knowledge(query, top_k=2)
+        if docs:
+            doc_texts = []
+            for d in docs:
+                source = d.metadata.get("source", "Unknown")
+                title = d.metadata.get("title", "Untitled")
+                doc_texts.append(f"Source: {source} | Title: {title}\nContent: {d.page_content}")
+            knowledge_context = "\n\nKNOWLEDGE BASE CONTEXT:\n" + "\n---\n".join(doc_texts)
+    except Exception as e:
+        pass  # Ignore RAG errors if Qdrant isn't up
+
     prompt = f"""You are ShieldAI, an AI security analyst assistant embedded in a SOC dashboard. Answer the analyst's question using ONLY the data provided below. Do NOT invent facts.
 
 CURRENT SOC DATA:
@@ -140,11 +155,11 @@ CURRENT SOC DATA:
 - Pending Approvals: {pending_approvals}
 
 RECENT ALERTS (latest 30):
-{alerts_summary}
+{alerts_summary}{knowledge_context}
 
 ANALYST QUESTION: {query}
 
-Respond concisely and helpfully. If the data doesn't contain the answer, say so. Reference specific alert IDs and IPs where possible."""
+Respond concisely and helpfully. If the data doesn't contain the answer, say so. Reference specific alert IDs, IPs, and Knowledge Base sources where possible."""
 
     fallback_answer = _generate_fallback_answer(query, all_alerts, log_count, block_count,
                                                   active_incidents, pending_approvals)
