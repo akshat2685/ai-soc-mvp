@@ -15,6 +15,7 @@ An AI-powered Security Operations Center (SOC) MVP designed to ingest logs, dete
   - Tier 3: CAPTCHA Challenge
   - Tier 4: Temporary IP Block
   - Tier 5: Permanent IP Block & Account Locking (requires Analyst approval)
+- **Plug-and-Play API Key Integration**: Easily generate secure API keys from the dashboard to authenticate your website's backend directly with the SOC. Includes auto-generated copy-paste integration snippets (Node.js & Python) to secure endpoints in seconds with fail-open safeguards.
 - **Human-in-the-Loop Approval Queue**: High-impact defensive actions are queued for manual review by a human analyst.
 - **WebSockets & Live Dashboard**: Streams live logs, alerts, and approval requests to the frontend in real-time.
 - **Natural Language DB Querying**: Includes an AI chat interface that converts natural language questions into SQL to query the SOC database.
