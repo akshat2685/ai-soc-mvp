@@ -15,7 +15,7 @@ Full-featured API with:
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest
+from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest, APIKeyCreate
 from database import init_db, get_db
 from detection import check_for_abuse, calculate_fingerprint, update_entity_baselines
 from threat_intel import enrich_ip
@@ -184,12 +184,66 @@ async def get_me(user: dict = Depends(require_auth)):
     return user
 
 
+@app.post("/auth/api-keys")
+async def create_api_key(req: APIKeyCreate, user: dict = Depends(require_auth)):
+    import secrets
+    key_value = "shieldai_live_" + secrets.token_hex(24)
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO api_keys (key_value, name, user_id) VALUES (?, ?, ?)",
+            (key_value, req.name, user["username"])
+        )
+        conn.commit()
+    return {"status": "ok", "key": key_value, "name": req.name}
+
+
+@app.get("/auth/api-keys")
+async def get_api_keys(user: dict = Depends(require_auth)):
+    with get_db() as conn:
+        cur = conn.execute(
+            "SELECT id, name, key_value, created_at, last_used_at, is_active FROM api_keys ORDER BY created_at DESC"
+        )
+        keys = []
+        for row in cur.fetchall():
+            d = dict(row)
+            kv = d["key_value"]
+            if len(kv) > 16:
+                d["key_value"] = kv[:12] + "..." + kv[-4:]
+            keys.append(d)
+        return keys
+
+
+@app.delete("/auth/api-keys/{key_id}")
+async def revoke_api_key(key_id: int, user: dict = Depends(require_auth)):
+    with get_db() as conn:
+        conn.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
+        conn.commit()
+    return {"status": "revoked"}
+
+
 # ══════════════════════════════════════════════════════════════
 #  LOG INGESTION (rate-limited, no auth — uses API key in production)
 # ══════════════════════════════════════════════════════════════
 
 @app.post("/ingest")
 async def ingest_log(log: TelemetryLog, request: Request, background_tasks: BackgroundTasks):
+    # API Key Authentication
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            api_key = auth_header[7:]
+    
+    if not api_key:
+        raise HTTPException(status_code=401, detail="API Key is missing. Pass X-API-Key header.")
+
+    with get_db() as conn:
+        cur = conn.execute("SELECT 1 FROM api_keys WHERE key_value = ? AND is_active = 1", (api_key,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        conn.execute("UPDATE api_keys SET last_used_at = datetime('now') WHERE key_value = ?", (api_key,))
+        conn.commit()
+
     client_ip = request.client.host if request.client else "unknown"
     device_fp = calculate_fingerprint(log.user_agent, log.device_id, log.headers)
 

@@ -227,7 +227,8 @@ class AttackSimulator:
     def send_log(self, payload: dict):
         """Send a single log entry to the /ingest endpoint."""
         try:
-            resp = requests.post(self.api_url, json=payload, timeout=5)
+            headers = {"X-API-Key": "shieldai_dev_api_key_2026"}
+            resp = requests.post(self.api_url, json=payload, headers=headers, timeout=5)
             if resp.status_code == 200:
                 self.stats["sent"] += 1
             elif resp.status_code == 429:

@@ -47,6 +47,9 @@
             <li class="active" data-view="dashboard">
                 <span class="nav-icon">&#x1F4CA;</span> Dashboard
             </li>
+            <li data-view="apikeys">
+                <span class="nav-icon">&#x1F511;</span> API Keys
+            </li>
             <li data-view="incidents">
                 <span class="nav-icon">&#x1F516;</span> Incidents
                 <span class="nav-badge" id="nav-incident-count">0</span>
@@ -138,6 +141,127 @@
                         <tbody></tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <!-- API KEYS VIEW -->
+        <div class="view" id="view-apikeys">
+            <header>
+                <h1>API Keys Integration</h1>
+                <div class="status-badge pulse" style="background:rgba(59,130,246,0.1);color:#3b82f6;border-color:rgba(59,130,246,0.2);">Developer Tools</div>
+            </header>
+            <div class="card">
+                <h2>Generate New Key</h2>
+                <form id="api-key-form" style="display: flex; gap: 1rem; margin-top: 1rem; max-width: 600px;">
+                    <input type="text" id="api-key-name" placeholder="e.g. Production Website Backend" required style="flex: 1; padding: 0.75rem; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: #fff; border-radius: 4px;">
+                    <button type="submit" class="btn" style="background: var(--primary); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 4px; cursor: pointer; font-weight: 600;">Generate Key</button>
+                </form>
+            </div>
+            
+            <div class="card" id="new-key-display-card" style="display: none; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3);">
+                <h3 style="color: #10b981; margin-bottom: 0.5rem;">Key Generated Successfully!</h3>
+                <p style="margin-bottom: 1rem; font-size: 0.9rem; color: #a1a1aa;">Copy this key now. For security reasons, you won't be able to see it again.</p>
+                <div style="display: flex; gap: 0.5rem; align-items: center; background: rgba(0,0,0,0.3); padding: 0.75rem; border-radius: 4px; font-family: monospace; word-break: break-all;" id="new-key-value">
+                    <!-- Key value here -->
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Active API Keys</h2>
+                <div class="table-container">
+                    <table id="apikeys-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Key Prefix</th>
+                                <th>Created</th>
+                                <th>Last Used</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Quick Integration Snippet (Node.js SDK)</h2>
+                <p style="color: #a1a1aa; margin-bottom: 1rem;">Paste this code directly into your Node.js/Express backend to protect your endpoints with one line of code.</p>
+                <pre style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 4px; overflow-x: auto; color: #e2e8f0; font-family: monospace; font-size: 0.85rem;" id="node-sdk-snippet">
+// 1. Save this helper as 'shield_soc.js'
+const axios = require('axios');
+
+const SOC_URL = 'http://YOUR_SOC_IP:8000'; // Update with your SOC URL
+const API_KEY = 'YOUR_API_KEY_HERE';
+
+async function protectRequest(req) {
+    const payload = {
+        event_type: req.path.includes('login') ? 'login' : 'api_call',
+        source_ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1',
+        user_id: req.body?.username || req.body?.email || req.user?.id || null,
+        status: 'pending',
+        device_id: req.cookies?.device_id || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown',
+        endpoint: req.path,
+        method: req.method,
+        headers: req.headers
+    };
+
+    try {
+        const res = await axios.post(`${SOC_URL}/ingest`, payload, {
+            headers: { 'X-API-Key': API_KEY },
+            timeout: 800 // Fail open quickly if SOC is slow
+        });
+        return { action: 'ALLOW' };
+    } catch (err) {
+        if (err.response) {
+            if (err.response.status === 401) console.error('SOC API Key is invalid');
+            if (err.response.status === 403) return { action: 'BLOCK', detail: 'Suspicious IP' };
+            if (err.response.status === 429) return { action: 'RATE_LIMIT', detail: 'Rate limit exceeded' };
+        }
+        return { action: 'ALLOW' }; // Fail open
+    }
+}
+
+// 2. Express Middleware Usage Example:
+// app.use(async (req, res, next) => {
+//     const guard = await protectRequest(req);
+//     if (guard.action === 'BLOCK') return res.status(403).send('Forbidden: Blocked by ShieldAI SOC');
+//     if (guard.action === 'RATE_LIMIT') return res.status(429).send('Too Many Requests');
+//     next();
+// });
+                </pre>
+                
+                <h2 style="margin-top: 2rem;">Python SDK Integration Snippet</h2>
+                <pre style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 4px; overflow-x: auto; color: #e2e8f0; font-family: monospace; font-size: 0.85rem;" id="python-sdk-snippet">
+# 1. Save this helper as 'shield_soc.py'
+import httpx
+
+SOC_URL = 'http://YOUR_SOC_IP:8000' # Update with your SOC URL
+API_KEY = 'YOUR_API_KEY_HERE'
+
+def protect_request(ip: str, path: str, method: str, user_agent: str = None, headers: dict = None, user_id: str = None) -> str:
+    payload = {
+        "event_type": "login" if "login" in path else "api_call",
+        "source_ip": ip,
+        "user_id": user_id,
+        "status": "pending",
+        "device_id": "unknown",
+        "user_agent": user_agent or "unknown",
+        "endpoint": path,
+        "method": method,
+        "headers": headers or {}
+    }
+    try:
+        resp = httpx.post(f"{SOC_URL}/ingest", json=payload, headers={"X-API-Key": API_KEY}, timeout=0.8)
+        if resp.status_code == 403:
+            return "BLOCK"
+        elif resp.status_code == 429:
+            return "RATE_LIMIT"
+    except Exception:
+        pass
+    return "ALLOW" # Fail open
+                </pre>
             </div>
         </div>
 

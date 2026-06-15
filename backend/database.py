@@ -192,6 +192,18 @@ def init_db():
             )
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key_value TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_used_at DATETIME,
+                is_active INTEGER DEFAULT 1,
+                user_id TEXT
+            )
+        """)
+
         # ── Safe Migrations for Existing DBs ──
         _safe_add_column(conn, "logs", "device_fingerprint", "TEXT")
         _safe_add_column(conn, "logs", "geo_country", "TEXT")
@@ -251,6 +263,14 @@ def init_db():
             conn.execute(
                 "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
                 ("admin", pw_hash, "admin")
+            )
+
+        # ── Seed default development API key ──
+        cur = conn.execute("SELECT COUNT(*) as c FROM api_keys")
+        if cur.fetchone()['c'] == 0:
+            conn.execute(
+                "INSERT INTO api_keys (key_value, name) VALUES (?, ?)",
+                ("shieldai_dev_api_key_2026", "Default Dev Key")
             )
 
         conn.commit()

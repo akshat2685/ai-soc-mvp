@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initNavigation();
     initModal();
     initChat();
+    initApiKeys();
 
     // Check if already logged in
     const saved = localStorage.getItem('soc_token');
@@ -149,7 +150,7 @@ function addLiveFeedEvent(type, message) {
 
 async function fetchAllData() {
     try {
-        const [statsRes, alertsRes, responsesRes, incidentsRes, approvalsRes, blocksRes, emailsRes, auditRes] = await Promise.all([
+        const [statsRes, alertsRes, responsesRes, incidentsRes, approvalsRes, blocksRes, emailsRes, auditRes, apiKeysRes] = await Promise.all([
             fetch(`${API_BASE}/stats`),
             fetch(`${API_BASE}/alerts`),
             fetch(`${API_BASE}/responses`),
@@ -158,6 +159,7 @@ async function fetchAllData() {
             fetch(`${API_BASE}/blocks`),
             fetch(`${API_BASE}/email-drafts`),
             fetch(`${API_BASE}/audit-log`),
+            fetch(`${API_BASE}/auth/api-keys`, { headers: authHeaders() })
         ]);
         const stats = await statsRes.json();
         const alerts = await alertsRes.json();
@@ -167,6 +169,12 @@ async function fetchAllData() {
         const blocks = await blocksRes.json();
         const emails = await emailsRes.json();
         const audit = await auditRes.json();
+        
+        // Handle potentially unauthorized request for API keys if not logged in
+        let apiKeys = [];
+        if (apiKeysRes && apiKeysRes.ok) {
+            apiKeys = await apiKeysRes.json();
+        }
 
         updateStats(stats);
         updateCharts(stats, alerts);
@@ -178,6 +186,7 @@ async function fetchAllData() {
         updateBlocksTable(blocks);
         updateEmailsTable(emails);
         updateAuditTable(audit);
+        updateApiKeysTable(apiKeys);
     } catch (error) {
         console.error("Fetch error:", error);
     }
@@ -658,6 +667,97 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.innerText = text;
     return div.innerHTML;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  API KEYS
+// ══════════════════════════════════════════════════════════════
+
+function initApiKeys() {
+    document.getElementById('api-key-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nameInput = document.getElementById('api-key-name');
+        const name = nameInput.value.trim();
+        if (!name) return;
+
+        try {
+            const res = await fetch(`${API_BASE}/auth/api-keys`, {
+                method: 'POST',
+                headers: authHeaders(),
+                body: JSON.stringify({ name })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                // Show the newly generated key
+                document.getElementById('new-key-value').innerText = data.key;
+                document.getElementById('new-key-display-card').style.display = 'block';
+                nameInput.value = '';
+                fetchAllData(); // refresh the table
+                updateSnippets(data.key);
+            } else {
+                alert('Failed to generate key: ' + (data.detail || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Connection failed');
+        }
+    });
+}
+
+function updateApiKeysTable(keys) {
+    const tbody = document.querySelector('#apikeys-table tbody');
+    tbody.innerHTML = '';
+    
+    // Update snippets with the most recently created key if snippets are currently using placeholder
+    if (keys.length > 0) {
+        // Find the most recent active key just for the snippet default
+        const latest = keys.find(k => k.is_active === 1);
+        if (latest && document.getElementById('node-sdk-snippet').innerText.includes('YOUR_API_KEY_HERE')) {
+            updateSnippets(latest.key_value.replace('...', '')); // Can't show full key if redacted, but we remind them
+        }
+    }
+
+    keys.forEach(k => {
+        const tr = document.createElement('tr');
+        const created = new Date(k.created_at).toLocaleString();
+        const lastUsed = k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'Never';
+        const statusClass = k.is_active ? 'approval-approved' : 'approval-rejected';
+        const statusText = k.is_active ? 'Active' : 'Revoked';
+        
+        tr.innerHTML = `
+            <td><strong>${escapeHtml(k.name)}</strong></td>
+            <td style="font-family:monospace;color:var(--primary);">${escapeHtml(k.key_value)}</td>
+            <td>${created}</td>
+            <td>${lastUsed}</td>
+            <td><span class="approval-status ${statusClass}">${statusText}</span></td>
+            <td>
+                ${k.is_active ? `<button class="btn-reject" onclick="revokeApiKey(${k.id})">Revoke</button>` : '-'}
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function updateSnippets(keyValue) {
+    // If the key is redacted (contains ...), we just use it as a hint, otherwise we inject the real key
+    const displayKey = keyValue.includes('...') ? 'YOUR_NEW_API_KEY' : keyValue;
+    const nodePre = document.getElementById('node-sdk-snippet');
+    const pyPre = document.getElementById('python-sdk-snippet');
+    nodePre.innerText = nodePre.innerText.replace(/YOUR_API_KEY_HERE|YOUR_NEW_API_KEY/g, displayKey);
+    pyPre.innerText = pyPre.innerText.replace(/YOUR_API_KEY_HERE|YOUR_NEW_API_KEY/g, displayKey);
+}
+
+async function revokeApiKey(id) {
+    if (!confirm("Are you sure you want to revoke this API key? Any integration using it will immediately stop working.")) return;
+    try {
+        await fetch(`${API_BASE}/auth/api-keys/${id}`, {
+            method: 'DELETE',
+            headers: authHeaders()
+        });
+        fetchAllData();
+    } catch (err) {
+        console.error(err);
+    }
 }
 
 // Fallback polling

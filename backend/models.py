@@ -87,3 +87,7 @@ class VerdictRequest(BaseModel):
 
 class ApprovalRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=1000)
+
+
+class APIKeyCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
