@@ -204,6 +204,32 @@ def init_db():
             )
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vulnerabilities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip_address TEXT NOT NULL,
+                cve_id TEXT,
+                severity TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                tool_source TEXT,
+                discovered_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_name TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                cve_id TEXT,
+                severity TEXT NOT NULL,
+                description TEXT,
+                commit_hash TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # ── Safe Migrations for Existing DBs ──
         _safe_add_column(conn, "logs", "device_fingerprint", "TEXT")
         _safe_add_column(conn, "logs", "geo_country", "TEXT")

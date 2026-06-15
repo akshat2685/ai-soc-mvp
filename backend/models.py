@@ -91,3 +91,41 @@ class ApprovalRequest(BaseModel):
 
 class APIKeyCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
+
+
+class VulnerabilityRecord(BaseModel):
+    ip_address: str = Field(..., max_length=45)
+    cve_id: Optional[str] = Field(None, max_length=30)
+    severity: str = Field(..., max_length=20)
+    title: str = Field(..., max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
+    tool_source: Optional[str] = Field(None, max_length=50)
+
+    @field_validator('severity')
+    @classmethod
+    def validate_severity(cls, v):
+        allowed = {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'}
+        if v.upper() not in allowed:
+            raise ValueError(f"severity must be one of: {allowed}")
+        return v.upper()
+
+
+class VulnerabilityUpload(BaseModel):
+    records: list[VulnerabilityRecord]
+
+
+class DevSecOpsAlert(BaseModel):
+    repo_name: str = Field(..., max_length=100)
+    tool_name: str = Field(..., max_length=50)
+    cve_id: Optional[str] = Field(None, max_length=30)
+    severity: str = Field(..., max_length=20)
+    description: Optional[str] = Field(None, max_length=1000)
+    commit_hash: Optional[str] = Field(None, max_length=64)
+
+    @field_validator('severity')
+    @classmethod
+    def validate_severity(cls, v):
+        allowed = {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'}
+        if v.upper() not in allowed:
+            raise ValueError(f"severity must be one of: {allowed}")
+        return v.upper()

@@ -15,7 +15,7 @@ Full-featured API with:
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest, APIKeyCreate
+from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest, APIKeyCreate, VulnerabilityRecord, VulnerabilityUpload, DevSecOpsAlert
 from database import init_db, get_db
 from detection import check_for_abuse, calculate_fingerprint, update_entity_baselines
 from threat_intel import enrich_ip
@@ -830,3 +830,70 @@ soc_ws_clients {len(connected_clients)}
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+
+
+# ══════════════════════════════════════════════════════════════
+#  ENTERPRISE INTEGRATIONS: SIEM, VULNERABILITIES, & DEVSECOPS
+# ══════════════════════════════════════════════════════════════
+
+@app.get("/siem/export")
+async def siem_export(user: dict = Depends(require_auth)):
+    """Exports recent alerts in Common Event Format (CEF) for SIEM integration."""
+    cef_lines = []
+    with get_db() as conn:
+        cur = conn.execute("SELECT id, timestamp, title, severity, attack_type, attacker_ip FROM alerts ORDER BY timestamp DESC LIMIT 100")
+        for row in cur.fetchall():
+            d = dict(row)
+            sev_num = 1
+            if d["severity"] == "CRITICAL": sev_num = 10
+            elif d["severity"] == "HIGH": sev_num = 8
+            elif d["severity"] == "MEDIUM": sev_num = 5
+            elif d["severity"] == "LOW": sev_num = 3
+            
+            # Format: CEF:Version|Device Vendor|Device Product|Device Version|Device Event Class ID|Name|Severity|[Extension]
+            cef = f"CEF:0|ShieldAI|SOC Platform|1.0|{d['attack_type']}|{d['title']}|{sev_num}|rt={d['timestamp']} src={d['attacker_ip'] or '0.0.0.0'} msg=Alert triggered on SOC"
+            cef_lines.append(cef)
+            
+    return JSONResponse(content={"cef": cef_lines}, media_type="application/json")
+
+
+@app.post("/vulnerabilities/upload")
+async def upload_vulnerabilities(payload: VulnerabilityUpload, user: dict = Depends(require_auth)):
+    """Ingests vulnerability assessment reports from authorized security scanners."""
+    with get_db() as conn:
+        for r in payload.records:
+            conn.execute(
+                "INSERT INTO vulnerabilities (ip_address, cve_id, severity, title, description, tool_source) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (r.ip_address, r.cve_id, r.severity, r.title, r.description, r.tool_source)
+            )
+        conn.commit()
+    return {"status": "ok", "message": f"Successfully ingested {len(payload.records)} vulnerability records."}
+
+
+@app.post("/webhooks/devsecops")
+async def devsecops_webhook(alert: DevSecOpsAlert, request: Request):
+    """Webhook for ingesting pipeline build alerts (SAST/DAST) from DevSecOps CI/CD runners."""
+    # Authenticate via X-API-Key or Bearer Token (using standard key validation)
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            api_key = auth_header[7:]
+            
+    if not api_key:
+        raise HTTPException(status_code=401, detail="API Key is missing. Pass X-API-Key header.")
+
+    with get_db() as conn:
+        cur = conn.execute("SELECT 1 FROM api_keys WHERE key_value = ? AND is_active = 1", (api_key,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+            
+        conn.execute(
+            "INSERT INTO pipeline_alerts (repo_name, tool_name, cve_id, severity, description, commit_hash) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (alert.repo_name, alert.tool_name, alert.cve_id, alert.severity, alert.description, alert.commit_hash)
+        )
+        conn.commit()
+        
+    return {"status": "ok", "message": "Pipeline alert successfully recorded."}
