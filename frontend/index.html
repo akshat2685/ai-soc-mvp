@@ -4,13 +4,37 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ShieldAI SOC — AI Security Operations Center</title>
-    <meta name="description" content="AI-powered Security Operations Center for real-time attack detection, autonomous response, and threat intelligence.">
+    <meta name="description" content="AI-powered Security Operations Center with tiered autonomous response, approval workflows, and threat intelligence.">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 </head>
 <body>
+
+    <!-- LOGIN OVERLAY -->
+    <div class="login-overlay" id="login-overlay">
+        <div class="login-card">
+            <div class="login-logo">
+                <span class="login-logo-icon">&#x1F6E1;&#xFE0F;</span>
+                <h1>ShieldAI</h1>
+                <p>Security Operations Center</p>
+            </div>
+            <form id="login-form" autocomplete="off">
+                <div class="login-field">
+                    <label for="login-username">Username</label>
+                    <input type="text" id="login-username" placeholder="admin" value="admin" required>
+                </div>
+                <div class="login-field">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" placeholder="••••••" value="admin" required>
+                </div>
+                <button type="submit" class="login-btn" id="login-btn">Sign In</button>
+                <p class="login-error" id="login-error"></p>
+            </form>
+        </div>
+    </div>
+
     <div class="sidebar">
         <div class="logo">
             <span class="logo-icon">&#x1F6E1;&#xFE0F;</span>
@@ -31,14 +55,33 @@
                 <span class="nav-icon">&#x1F6A8;</span> Alerts
                 <span class="nav-badge" id="nav-alert-count">0</span>
             </li>
+            <li data-view="approvals">
+                <span class="nav-icon">&#x2705;</span> Approvals
+                <span class="nav-badge nav-badge-warn" id="nav-approval-count">0</span>
+            </li>
+            <li data-view="blocks">
+                <span class="nav-icon">&#x1F6D1;</span> Active Blocks
+            </li>
+            <li data-view="emails">
+                <span class="nav-icon">&#x1F4E7;</span> Email Drafts
+                <span class="nav-badge nav-badge-teal" id="nav-email-count">0</span>
+            </li>
             <li data-view="responses">
                 <span class="nav-icon">&#x26A1;</span> Response Log
+            </li>
+            <li data-view="audit">
+                <span class="nav-icon">&#x1F4DC;</span> Audit Log
             </li>
             <li data-view="feed">
                 <span class="nav-icon">&#x1F4E1;</span> Live Feed
             </li>
         </ul>
         <div class="sidebar-footer">
+            <div class="user-info" id="user-info">
+                <span class="user-role" id="user-role">analyst</span>
+                <span class="user-name" id="user-name">admin</span>
+                <button class="logout-btn" id="logout-btn" title="Logout">&#x23FB;</button>
+            </div>
             <div class="ws-status" id="ws-status">
                 <span class="ws-dot disconnected"></span> Disconnected
             </div>
@@ -56,23 +99,23 @@
             <div class="stats-grid">
                 <div class="stat-card" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);">
                     <div class="stat-icon">&#x1F516;</div>
-                    <div><h3>Total Incidents</h3><p id="total-incidents">0</p></div>
+                    <div><h3>Incidents</h3><p id="total-incidents">0</p></div>
                 </div>
                 <div class="stat-card stat-alerts">
                     <div class="stat-icon">&#x1F6A8;</div>
-                    <div><h3>Total Alerts</h3><p id="total-alerts">0</p></div>
+                    <div><h3>Alerts</h3><p id="total-alerts">0</p></div>
                 </div>
                 <div class="stat-card stat-blocked">
                     <div class="stat-icon">&#x1F6D1;</div>
-                    <div><h3>Auto-Blocked IPs</h3><p id="total-blocked">0</p></div>
+                    <div><h3>Blocked</h3><p id="total-blocked">0</p></div>
                 </div>
                 <div class="stat-card stat-emails">
-                    <div class="stat-icon">&#x1F4E7;</div>
-                    <div><h3>Emails Sent</h3><p id="total-emails">0</p></div>
+                    <div class="stat-icon">&#x2705;</div>
+                    <div><h3>Pending</h3><p id="total-pending">0</p></div>
                 </div>
                 <div class="stat-card stat-logs">
                     <div class="stat-icon">&#x1F4CB;</div>
-                    <div><h3>Events Ingested</h3><p id="total-logs">0</p></div>
+                    <div><h3>Events</h3><p id="total-logs">0</p></div>
                 </div>
             </div>
 
@@ -91,7 +134,7 @@
                 <h2>Recent Alerts</h2>
                 <div class="table-container">
                     <table id="alerts-table">
-                        <thead><tr><th>Time</th><th>Threat</th><th>Type</th><th>Attacker IP</th><th>Severity</th><th>AI Summary</th><th>Action</th></tr></thead>
+                        <thead><tr><th>Time</th><th>Threat</th><th>Type</th><th>Attacker IP</th><th>Severity</th><th>Confidence</th><th>AI Summary</th><th>Action</th></tr></thead>
                         <tbody></tbody>
                     </table>
                 </div>
@@ -117,7 +160,46 @@
             <div class="card">
                 <div class="table-container">
                     <table id="all-alerts-table">
-                        <thead><tr><th>ID</th><th>Time</th><th>Threat</th><th>Type</th><th>Attacker IP</th><th>Severity</th><th>Verdict</th><th>Action</th></tr></thead>
+                        <thead><tr><th>ID</th><th>Time</th><th>Threat</th><th>Type</th><th>IP</th><th>Severity</th><th>Confidence</th><th>Verdict</th><th>Action</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- APPROVALS VIEW -->
+        <div class="view" id="view-approvals">
+            <header><h1>Pending Approvals</h1><div class="status-badge pulse" style="background:rgba(245,158,11,0.1);color:#f59e0b;border-color:rgba(245,158,11,0.2);">Action Required</div></header>
+            <div class="card">
+                <div class="table-container">
+                    <table id="approvals-table">
+                        <thead><tr><th>ID</th><th>Time</th><th>Action</th><th>Tier</th><th>Target</th><th>Alert</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACTIVE BLOCKS VIEW -->
+        <div class="view" id="view-blocks">
+            <header><h1>Active Blocks &amp; Restrictions</h1></header>
+            <div class="card">
+                <div class="table-container">
+                    <table id="blocks-table">
+                        <thead><tr><th>ID</th><th>Time</th><th>Action</th><th>Tier</th><th>Target</th><th>Expires</th><th>Approval</th><th>Actions</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- EMAIL DRAFTS VIEW -->
+        <div class="view" id="view-emails">
+            <header><h1>Deterrence Email Drafts</h1></header>
+            <div class="card">
+                <div class="table-container">
+                    <table id="emails-table">
+                        <thead><tr><th>ID</th><th>Time</th><th>Target IP</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead>
                         <tbody></tbody>
                     </table>
                 </div>
@@ -128,6 +210,19 @@
         <div class="view" id="view-responses">
             <header><h1>Autonomous Response Log</h1></header>
             <div class="card"><div class="timeline" id="response-timeline"></div></div>
+        </div>
+
+        <!-- AUDIT LOG VIEW -->
+        <div class="view" id="view-audit">
+            <header><h1>Immutable Audit Log</h1></header>
+            <div class="card">
+                <div class="table-container">
+                    <table id="audit-table">
+                        <thead><tr><th>Time</th><th>Action</th><th>Tier</th><th>Target</th><th>Triggered By</th><th>Approval</th><th>Result</th><th>Notes</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- LIVE FEED VIEW -->
@@ -145,7 +240,7 @@
         </div>
         <div class="chat-body" id="chat-body">
             <div class="chat-messages" id="chat-messages">
-                <div class="chat-msg chat-ai">Hi! I'm ShieldAI. Ask me anything about your alerts, threats, or security posture.</div>
+                <div class="chat-msg chat-ai">Hi! I'm ShieldAI. Ask me anything — try "show all ATO attempts from last 24 hours" or "how many alerts are pending?"</div>
             </div>
             <div class="chat-input-bar">
                 <input type="text" id="chat-input" placeholder="Ask about alerts, IPs, attacks..." autocomplete="off">
@@ -160,7 +255,8 @@
             <div class="modal-header">
                 <h2 id="modal-title">Investigation Workspace</h2>
                 <div class="modal-actions">
-                    <button class="btn-pdf" id="btn-download-pdf">&#x1F4C4; Download PDF</button>
+                    <button class="btn-digest" onclick="window.open(API_BASE+'/digest/week','_blank')">&#x1F4CA; Weekly Digest</button>
+                    <button class="btn-pdf" id="btn-download-pdf">&#x1F4C4; PDF Report</button>
                     <button class="modal-close" id="modal-close">&times;</button>
                 </div>
             </div>
@@ -168,6 +264,7 @@
                 <div class="modal-tabs">
                     <button class="modal-tab active" data-tab="timeline">Timeline</button>
                     <button class="modal-tab" data-tab="evidence">Evidence</button>
+                    <button class="modal-tab" data-tab="citations">Citations</button>
                     <button class="modal-tab" data-tab="intel">Threat Intel</button>
                     <button class="modal-tab" data-tab="report">Attacker Report</button>
                     <button class="modal-tab" data-tab="email">Deterrence Email</button>
@@ -178,6 +275,10 @@
                 </div>
                 <div class="modal-tab-content" id="tab-evidence">
                     <div id="evidence-graph"></div>
+                </div>
+                <div class="modal-tab-content" id="tab-citations">
+                    <h3 style="margin-bottom:1rem;color:var(--text-bright);">Evidence Citations</h3>
+                    <div id="citations-content" class="citations-grid"></div>
                 </div>
                 <div class="modal-tab-content" id="tab-intel">
                     <div id="intel-content"></div>

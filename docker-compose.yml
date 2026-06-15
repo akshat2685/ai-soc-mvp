@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  soc-backend:
+    build: .
+    container_name: shieldai-soc
+    ports:
+      - "8000:8000"
+    env_file:
+      - backend/.env
+    environment:
+      - DB_TYPE=sqlite
+      - JWT_SECRET=shieldai-change-this-in-production
+    volumes:
+      - ./backend/soc.db:/app/backend/soc.db
+      - ./backend/reports:/app/backend/reports
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Frontend served via nginx (optional, can also serve from backend)
+  # soc-frontend:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "3000:80"
+  #   volumes:
+  #     - ./frontend:/usr/share/nginx/html:ro
+
+  # Future: PostgreSQL
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_DB: soc
+  #     POSTGRES_USER: soc
+  #     POSTGRES_PASSWORD: changeme
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+
+# volumes:
+#   pgdata:
