@@ -230,6 +230,18 @@ def init_db():
             )
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS assets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip_address TEXT UNIQUE NOT NULL,
+                hostname TEXT NOT NULL,
+                owner TEXT,
+                os TEXT,
+                criticality TEXT NOT NULL,
+                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # ── Safe Migrations for Existing DBs ──
         _safe_add_column(conn, "logs", "device_fingerprint", "TEXT")
         _safe_add_column(conn, "logs", "geo_country", "TEXT")
@@ -264,6 +276,8 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_pending_status ON pending_approvals(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_email_drafts_status ON email_drafts(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_attack ON analyst_feedback(attack_type, verdict)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_ip ON assets(ip_address)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_vulns_ip ON vulnerabilities(ip_address)")
 
         # ── Seed default correlation rules ──
         cur = conn.execute("SELECT COUNT(*) as c FROM correlation_rules")

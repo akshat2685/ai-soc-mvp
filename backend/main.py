@@ -15,7 +15,7 @@ Full-featured API with:
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest, APIKeyCreate, VulnerabilityRecord, VulnerabilityUpload, DevSecOpsAlert
+from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest, APIKeyCreate, VulnerabilityRecord, VulnerabilityUpload, DevSecOpsAlert, AssetRecord, AssetInventoryUpload, IDSAlertLog
 from database import init_db, get_db
 from detection import check_for_abuse, calculate_fingerprint, update_entity_baselines
 from threat_intel import enrich_ip
@@ -897,3 +897,105 @@ async def devsecops_webhook(alert: DevSecOpsAlert, request: Request):
         conn.commit()
         
     return {"status": "ok", "message": "Pipeline alert successfully recorded."}
+
+
+@app.post("/assets/upload")
+async def upload_assets(payload: AssetInventoryUpload, user: dict = Depends(require_auth)):
+    """Ingests asset inventory mappings linking IP addresses, hostnames, and business criticality."""
+    with get_db() as conn:
+        for a in payload.assets:
+            conn.execute(
+                "INSERT INTO assets (ip_address, hostname, owner, os, criticality) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(ip_address) DO UPDATE SET "
+                "hostname=excluded.hostname, owner=excluded.owner, os=excluded.os, "
+                "criticality=excluded.criticality, last_updated=datetime('now')",
+                (a.ip_address, a.hostname, a.owner, a.os, a.criticality)
+            )
+        conn.commit()
+    return {"status": "ok", "message": f"Successfully ingested/updated {len(payload.assets)} assets."}
+
+
+@app.post("/alerts/ids")
+async def ingest_ids_alert(alert: IDSAlertLog, request: Request):
+    """Ingests network intrusion detection (IDS/IPS) alerts (e.g. Suricata/Zeek logs) defensively.
+    Correlates target asset criticality and vulnerability state to elevate severity and generate remediation."""
+    
+    # 1. API Key Authentication
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            api_key = auth_header[7:]
+    if not api_key:
+        raise HTTPException(status_code=401, detail="API Key is missing")
+
+    with get_db() as conn:
+        cur = conn.execute("SELECT 1 FROM api_keys WHERE key_value = ? AND is_active = 1", (api_key,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+
+    # 2. Risk Correlation & Prioritization
+    final_severity = alert.severity.upper()
+    asset_criticality = "UNKNOWN"
+    matching_vulns = []
+    
+    with get_db() as conn:
+        # Check target asset criticality
+        cur_asset = conn.execute("SELECT hostname, criticality FROM assets WHERE ip_address = ?", (alert.target_ip,))
+        asset_row = cur_asset.fetchone()
+        if asset_row:
+            asset_criticality = asset_row["criticality"]
+            
+        # Check known vulnerabilities for the target asset
+        cur_vulns = conn.execute("SELECT cve_id, title FROM vulnerabilities WHERE ip_address = ?", (alert.target_ip,))
+        matching_vulns = [dict(row) for row in cur_vulns.fetchall()]
+
+    # Prioritization logic:
+    # If target has critical vulnerabilities AND the asset is HIGH criticality, elevate the alert to CRITICAL.
+    remediation_notes = "No known matching target vulnerabilities. Monitor normally."
+    if matching_vulns:
+        vuln_cves = [v["cve_id"] for v in matching_vulns if v["cve_id"]]
+        remediation_notes = f"Target host has known vulnerabilities: {', '.join(vuln_cves)}. Apply security patches immediately."
+        
+        if asset_criticality == "HIGH":
+            final_severity = "CRITICAL"
+            remediation_notes += " Priority elevated: Host contains high business criticality data."
+        elif final_severity in ("MEDIUM", "LOW"):
+            final_severity = "HIGH"
+
+    # 3. Create Alert in SOC database
+    title = f"IDS Alert: {alert.signature} targeting {alert.target_ip}"
+    evidence = json.dumps({
+        "source_ip": alert.source_ip,
+        "target_ip": alert.target_ip,
+        "protocol": alert.protocol,
+        "payload_hex": alert.payload_hex,
+        "asset_criticality": asset_criticality,
+        "matched_vulnerabilities": matching_vulns
+    })
+    
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO alerts (title, severity, confidence, confidence_score, attack_type, evidence, attacker_ip, llm_summary) "
+            "VALUES (?, ?, 'HIGH', 90, 'Network Intrusion', ?, ?, ?)",
+            (title, final_severity, evidence, alert.source_ip, remediation_notes)
+        )
+        conn.commit()
+
+    # Broadcast alert to live dashboard via WebSockets
+    broadcast_event({
+        "type": "new_alert",
+        "alert": {
+            "title": title,
+            "severity": final_severity,
+            "attacker_ip": alert.source_ip,
+            "attack_type": "Network Intrusion"
+        }
+    })
+
+    return {
+        "status": "ok", 
+        "severity_assigned": final_severity, 
+        "remediation_recommendation": remediation_notes
+    }

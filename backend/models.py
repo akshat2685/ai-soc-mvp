@@ -129,3 +129,40 @@ class DevSecOpsAlert(BaseModel):
         if v.upper() not in allowed:
             raise ValueError(f"severity must be one of: {allowed}")
         return v.upper()
+
+
+class AssetRecord(BaseModel):
+    ip_address: str = Field(..., max_length=45)
+    hostname: str = Field(..., max_length=100)
+    owner: Optional[str] = Field(None, max_length=100)
+    os: Optional[str] = Field(None, max_length=50)
+    criticality: str = Field(..., max_length=20)
+
+    @field_validator('criticality')
+    @classmethod
+    def validate_criticality(cls, v):
+        allowed = {'HIGH', 'MEDIUM', 'LOW'}
+        if v.upper() not in allowed:
+            raise ValueError(f"criticality must be one of: {allowed}")
+        return v.upper()
+
+
+class AssetInventoryUpload(BaseModel):
+    assets: list[AssetRecord]
+
+
+class IDSAlertLog(BaseModel):
+    source_ip: str = Field(..., max_length=45)
+    target_ip: str = Field(..., max_length=45)
+    signature: str = Field(..., max_length=200)
+    severity: str = Field(..., max_length=20)
+    protocol: Optional[str] = Field(None, max_length=10)
+    payload_hex: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator('severity')
+    @classmethod
+    def validate_severity(cls, v):
+        allowed = {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'}
+        if v.upper() not in allowed:
+            raise ValueError(f"severity must be one of: {allowed}")
+        return v.upper()
