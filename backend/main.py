@@ -247,17 +247,19 @@ async def ingest_log(log: TelemetryLog, request: Request, background_tasks: Back
     client_ip = request.client.host if request.client else "unknown"
     device_fp = calculate_fingerprint(log.user_agent, log.device_id, log.headers)
 
-    # Enforce active blocks
+    # Enforce active blocks with a Tarpit delay
     with get_db() as conn:
         cur = conn.execute(
             "SELECT 1 FROM responses WHERE action_type IN ('TEMP_BLOCK', 'PERM_BLOCK') AND status = 'ACTIVE' AND target IN (?, ?)",
             (log.source_ip, device_fp)
         )
         if cur.fetchone():
+            await asyncio.sleep(5)  # Tarpit: waste blocked attacker connection
             raise HTTPException(status_code=403, detail="Blocked due to suspicious activity.")
 
-    # Rate limiting
+    # Rate limiting with a Tarpit delay
     if not _rate_limiter.check(client_ip):
+        await asyncio.sleep(3)  # Tarpit: slow down volumetric/scraping rate
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded. Max 500 requests per minute.",
@@ -285,6 +287,72 @@ async def ingest_log(log: TelemetryLog, request: Request, background_tasks: Back
 
     check_for_abuse(log.source_ip, log.user_id, log.device_id, log.user_agent, log.headers, background_tasks=background_tasks)
     return {"status": "ok"}
+
+
+# ══════════════════════════════════════════════════════════════
+#  ACTIVE DEFENSE: HONEYPOTS
+# ══════════════════════════════════════════════════════════════
+
+@app.get("/admin/backup")
+@app.get("/api/v1/config.json")
+async def honeypot_trigger(request: Request, background_tasks: BackgroundTasks):
+    client_ip = request.client.host if request.client else "unknown"
+    headers_dict = dict(request.headers)
+    user_agent = request.headers.get("user-agent", "unknown")
+    
+    # Calculate a fingerprint for this attacker
+    device_fp = calculate_fingerprint(user_agent, "honeypot-device", headers_dict)
+    
+    path = request.url.path
+    title = f"Honeypot Triggered: Probe on {path}"
+    evidence = json.dumps({
+        "path": path,
+        "method": request.method,
+        "client_ip": client_ip,
+        "device_fingerprint": device_fp,
+        "headers": headers_dict
+    })
+    
+    # 1. Create Alert and auto-block
+    with get_db() as conn:
+        # Insert Critical Honeypot Alert
+        cur = conn.execute(
+            "INSERT INTO alerts (title, severity, confidence, confidence_score, attack_type, evidence, attacker_ip, device_fingerprint) "
+            "VALUES (?, 'CRITICAL', 'HIGH', 100, 'Honeypot Trigger', ?, ?, ?)",
+            (title, evidence, client_ip, device_fp)
+        )
+        alert_id = cur.lastrowid
+        
+        # Apply permanent block response to both IP and fingerprint
+        for target in (client_ip, device_fp):
+            cur_block = conn.execute(
+                "SELECT 1 FROM responses WHERE action_type = 'PERM_BLOCK' AND status = 'ACTIVE' AND target = ?",
+                (target,)
+            )
+            if not cur_block.fetchone():
+                conn.execute(
+                    "INSERT INTO responses (action_type, target, details, alert_id, response_tier, status, approval_status) "
+                    "VALUES ('PERM_BLOCK', ?, ?, ?, 5, 'ACTIVE', 'AUTO')",
+                    (target, f"Honeypot triggered on {path}", alert_id)
+                )
+        conn.commit()
+
+    # Broadcast to websocket
+    broadcast_event({
+        "type": "new_alert",
+        "alert": {
+            "title": title,
+            "severity": "CRITICAL",
+            "attacker_ip": client_ip,
+            "attack_type": "Honeypot Trigger"
+        }
+    })
+    
+    # Tarpit delay: sleep 10s to block/waste attacker's script resource
+    await asyncio.sleep(10)
+    
+    # Return fake 404
+    raise HTTPException(status_code=404, detail="Not Found")
 
 
 # ══════════════════════════════════════════════════════════════
