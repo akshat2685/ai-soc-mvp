@@ -7,6 +7,8 @@ Upgraded with:
 """
 import os
 import json
+from dotenv import load_dotenv
+load_dotenv()
 
 # Try to import google.generativeai for real LLM; if unavailable, use fallback
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -99,11 +101,36 @@ def generate_alert_summary(alert_title: str, evidence: dict,
     log_entries = _format_log_entries(related_logs) if related_logs else "N/A"
     confidence = evidence.get('confidence_score', 80)
 
+    # --- THREAT INTEL INTEGRATION (PHASE 3) ---
+    threat_intel_ctx = ""
+    target_ip = evidence.get('attacker_ip') or evidence.get('source_ip')
+    if target_ip:
+        from threat_intel import enrich_ip
+        intel = enrich_ip(target_ip)
+        if intel:
+            threat_intel_ctx += f"\nThreat Intelligence for IP {target_ip}:\n- ISP: {intel.get('isp')}\n- Country: {intel.get('country')}\n- Abuse Score: {intel.get('abuse_score')}/100\n- Usage Type: {intel.get('usage_type')}\n"
+            
+    import re
+    cves_found = set(re.findall(r"CVE-\d{4}-\d{4,7}", alert_title + " " + json.dumps(evidence)))
+    if cves_found:
+        from threat_intel_engine import check_cve, check_cve_kev
+        threat_intel_ctx += "\nVulnerability Intelligence:\n"
+        for cve in cves_found:
+            cve_data = check_cve(cve)
+            kev_data = check_cve_kev(cve)
+            threat_intel_ctx += f"- {cve}: "
+            if cve_data:
+                threat_intel_ctx += f"{cve_data.get('severity')} severity. "
+            if kev_data:
+                threat_intel_ctx += "KNOWN EXPLOITED (CISA KEV). "
+            threat_intel_ctx += "\n"
+
     prompt = f"""You are an AI security analyst in a SOC platform. Summarize this security alert in 2-3 clear sentences for an analyst.
 
 Alert Type: {alert_title}
 Evidence: {json.dumps(evidence)}
 Confidence Score: {confidence}/100
+{threat_intel_ctx}
 
 Related Log Entries (cite these by ID):
 {log_entries}
@@ -111,8 +138,9 @@ Related Log Entries (cite these by ID):
 CRITICAL INSTRUCTIONS:
 1. For every claim, cite the specific log entry ID(s) that support it using [LOG-ID] format.
 2. Be specific about what happened, the key indicators, and why this is suspicious.
-3. Do NOT invent facts not present in the evidence or logs.
-4. Start with the confidence assessment: "Confidence: {confidence}/100 — "
+3. Incorporate any Threat Intelligence or Vulnerability details if provided.
+4. Do NOT invent facts not present in the evidence or logs.
+5. Start with the confidence assessment: "Confidence: {confidence}/100 — "
 {feedback_ctx}"""
 
     fallback = (
@@ -138,9 +166,19 @@ def generate_attacker_report(attacker_ip: str, events: list, attack_type: str) -
     device_ids = set(e.get('device_id', 'unknown') for e in events if e.get('device_id'))
     fingerprints = set(e.get('device_fingerprint', '') for e in events if e.get('device_fingerprint'))
 
+    # --- THREAT INTEL INTEGRATION (PHASE 3) ---
+    from threat_intel import enrich_ip
+    intel = enrich_ip(attacker_ip)
+    threat_intel_ctx = ""
+    if intel:
+        threat_intel_ctx = f"ISP: {intel.get('isp')}\nCountry: {intel.get('country')} {intel.get('flag', '')}\nAbuse Score: {intel.get('abuse_score')}/100\nUsage Type: {intel.get('usage_type')}"
+
     prompt = f"""You are a threat intelligence analyst. Generate a detailed attacker intelligence report in markdown format.
 
 Attacker IP: {attacker_ip}
+Threat Intel: 
+{threat_intel_ctx}
+
 Attack Type: {attack_type}
 Total Malicious Events: {len(events)}
 Targeted Endpoints: {', '.join(endpoints)}
@@ -150,7 +188,7 @@ Device IDs Seen: {', '.join(device_ids)}
 Device Fingerprints: {', '.join(fingerprints)}
 Event Types: {', '.join(event_types)}
 
-Include sections: Executive Summary, Indicators of Compromise (IoCs), Attack Timeline Analysis, Threat Assessment, and Recommended Actions. Do NOT invent facts."""
+Include sections: Executive Summary, Indicators of Compromise (IoCs), Attack Timeline Analysis, Threat Assessment, and Recommended Actions. Use the Threat Intel data in the Threat Assessment. Do NOT invent facts."""
 
     fallback = f"""## Attacker Intelligence Report
 

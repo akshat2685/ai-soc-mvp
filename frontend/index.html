@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
 
@@ -44,6 +45,9 @@
             </div>
         </div>
         <ul class="nav" id="main-nav">
+            <li data-view="executive">
+                <span class="nav-icon">&#x1F4BC;</span> Executive
+            </li>
             <li class="active" data-view="dashboard">
                 <span class="nav-icon">&#x1F4CA;</span> Dashboard
             </li>
@@ -92,6 +96,43 @@
     </div>
 
     <div class="main-content">
+        <!-- EXECUTIVE VIEW -->
+        <div class="view" id="view-executive">
+            <header>
+                <h1>Executive Reporting</h1>
+                <div class="header-actions">
+                    <button class="btn" onclick="window.open(`${API_BASE}/api/v1/reports/digest?period=week`)">&#x1F4C4; Weekly Digest</button>
+                    <button class="btn" onclick="window.open(`${API_BASE}/api/v1/reports/digest?period=month`)">&#x1F4C4; Monthly Digest</button>
+                </div>
+            </header>
+            
+            <div class="stats-grid">
+                <div class="stat-card" style="background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);">
+                    <div class="stat-icon">&#x1F3AF;</div>
+                    <div><h3>Platform Risk Score</h3><p id="exec-risk-score">0</p></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">&#x23F1;</div>
+                    <div><h3>Mean Time To Detect</h3><p id="exec-mttd">0s</p></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">&#x1F6A8;</div>
+                    <div><h3>Mean Time To Triage</h3><p id="exec-mttr">0s</p></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">&#x1F4B0;</div>
+                    <div><h3>Abuse Cost Prevented</h3><p id="exec-cost-prevented">$0</p></div>
+                </div>
+            </div>
+
+            <div class="card chart-card" style="margin-top: 1.5rem;">
+                <h2>Threat Trends (30 Days)</h2>
+                <div class="chart-container" style="height: 300px;">
+                    <canvas id="executive-trend-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
         <!-- DASHBOARD VIEW -->
         <div class="view active" id="view-dashboard">
             <header>
@@ -354,6 +395,54 @@ def protect_request(ip: str, path: str, method: str, user_agent: str = None, hea
             <header><h1>Live Event Feed</h1><div class="status-badge pulse">Streaming</div></header>
             <div class="card live-feed-card"><div id="live-feed" class="live-feed"></div></div>
         </div>
+
+        <!-- EXECUTIVE VIEW -->
+        <div class="view" id="view-executive">
+            <header>
+                <h1>Executive Dashboard</h1>
+                <div class="status-badge pulse" style="background:rgba(16,185,129,0.1);color:#10b981;border-color:rgba(16,185,129,0.2);">Board View</div>
+            </header>
+
+            <div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.1) 0%, rgba(29,78,216,0.1) 100%); border: 1px solid rgba(37,99,235,0.3);">
+                <h2 style="color: #60a5fa; margin-bottom: 0.5rem;">AI Executive Summary</h2>
+                <p id="ai-executive-summary" style="font-size: 1.05rem; line-height: 1.6; color: #e2e8f0;">Generating summary...</p>
+            </div>
+
+            <div class="stats-grid" style="margin-top: 1rem;">
+                <div class="stat-card" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                    <div class="stat-icon">&#x1F3AF;</div>
+                    <div><h3>Posture Score</h3><p id="posture-score">0</p></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">&#x23F1;&#xFE0F;</div>
+                    <div><h3>MTTR (Hours)</h3><p id="mttr-score">0.0</p></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">&#x1F50D;</div>
+                    <div><h3>MTTD (Hours)</h3><p id="mttd-score">0.0</p></div>
+                </div>
+                <div class="stat-card stat-blocked">
+                    <div class="stat-icon">&#x26A0;&#xFE0F;</div>
+                    <div><h3>Asset Risk</h3><p id="asset-risk-score">0</p></div>
+                </div>
+            </div>
+
+            <div class="charts-grid" style="margin-top: 1rem;">
+                <div class="card chart-card">
+                    <h2>Threat Trends (Last 7 Days)</h2>
+                    <div class="chart-container"><canvas id="threat-trends-chart"></canvas></div>
+                </div>
+                <div class="card chart-card">
+                    <h2>Most Targeted IPs</h2>
+                    <div class="table-container" style="height: 100%; padding-top: 1rem;">
+                        <table id="top-targets-table">
+                            <thead><tr><th>IP Address</th><th>Alerts Count</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- AI CHAT PANEL -->
@@ -392,6 +481,8 @@ def protect_request(ip: str, path: str, method: str, user_agent: str = None, hea
                     <button class="modal-tab" data-tab="intel">Threat Intel</button>
                     <button class="modal-tab" data-tab="report">Attacker Report</button>
                     <button class="modal-tab" data-tab="email">Deterrence Email</button>
+                    <button class="modal-tab" data-tab="graph">Attack Graph</button>
+                    <button class="modal-tab" data-tab="case">Case Management</button>
                 </div>
 
                 <div class="modal-tab-content active" id="tab-timeline">
@@ -412,6 +503,26 @@ def protect_request(ip: str, path: str, method: str, user_agent: str = None, hea
                 </div>
                 <div class="modal-tab-content" id="tab-email">
                     <div class="email-preview" id="email-preview"></div>
+                </div>
+                <div class="modal-tab-content" id="tab-graph">
+                    <div id="attack-graph-container" style="width: 100%; height: 500px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.5); border-radius: 8px;"></div>
+                </div>
+                <div class="modal-tab-content" id="tab-case">
+                    <h3 style="margin-bottom:1rem;color:var(--text-bright);">Case Management Workflow</h3>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="case-status" style="display:block;margin-bottom:0.5rem;color:var(--text-muted);">Current Status</label>
+                        <select id="case-status" style="width: 100%; padding: 0.5rem; background: var(--bg-card); color: var(--text-main); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;">
+                            <option value="ACTIVE">Active</option>
+                            <option value="INVESTIGATING">Under Investigation</option>
+                            <option value="CONTAINED">Contained</option>
+                            <option value="CLOSED">Closed</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="case-notes" style="display:block;margin-bottom:0.5rem;color:var(--text-muted);">Analyst Notes</label>
+                        <textarea id="case-notes" rows="6" style="width: 100%; padding: 0.5rem; background: var(--bg-card); color: var(--text-main); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;" placeholder="Add findings, IOCs, and progress here..."></textarea>
+                    </div>
+                    <button class="btn" id="btn-save-case">Save Case Details</button>
                 </div>
 
                 <div class="verdict-bar">

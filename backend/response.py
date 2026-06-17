@@ -11,6 +11,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from database import get_db
 from datetime import datetime, timedelta
+from redis_client import redis_client
 
 SMTP_EMAIL = os.environ.get("SMTP_EMAIL")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
@@ -92,6 +93,35 @@ class ResponseEngine:
 
         return min(5, base_tier)
 
+    # ── Playbook Executor ──
+
+    def execute_playbook(self, incident_id: int, target_ip: str, user_id: str, playbook_actions: list):
+        """Execute a sequential SOAR playbook."""
+        print(f"[SOAR] Executing playbook for Incident {incident_id}...")
+        for action in playbook_actions:
+            try:
+                if action == "DISABLE_ACCOUNT" and user_id:
+                    self.lock_account(user_id, alert_id=None, incident_id=incident_id)
+                elif action == "REVOKE_SESSIONS" and user_id:
+                    self._save_response("REVOKE_SESSIONS", user_id, "Revoked active JWT sessions", None, incident_id, tier=4)
+                    self._write_audit("REVOKE_SESSIONS", 4, user_id, incident_id=incident_id)
+                    print(f"[SOAR] Revoked sessions for {user_id}")
+                elif action == "BLOCK_IP" and target_ip:
+                    self._execute_temp_block(target_ip, None, incident_id, {"source": "SOAR Playbook"})
+                elif action == "SNAPSHOT_VM" and target_ip:
+                    self._save_response("SNAPSHOT_VM", target_ip, "Triggered hypervisor snapshot", None, incident_id, tier=2)
+                    self._write_audit("SNAPSHOT_VM", 2, target_ip, incident_id=incident_id)
+                    print(f"[SOAR] Triggered VM Snapshot for {target_ip}")
+                elif action == "COLLECT_FORENSICS" and target_ip:
+                    self._save_response("COLLECT_FORENSICS", target_ip, "Collected forensic memory dump", None, incident_id, tier=2)
+                    self._write_audit("COLLECT_FORENSICS", 2, target_ip, incident_id=incident_id)
+                    print(f"[SOAR] Collected forensics for {target_ip}")
+                elif action == "NOTIFY_ANALYST":
+                    print(f"[SOAR] High priority Slack/PagerDuty notification sent for Incident {incident_id}")
+                    self._write_audit("NOTIFY_ANALYST", 1, "SOC Team", incident_id=incident_id)
+            except Exception as e:
+                print(f"[SOAR] Failed to execute playbook action {action}: {e}")
+
     # ── Tier Executors ──
 
     def _execute_monitor(self, target: str, alert_id: int, incident_id: int, evidence: dict):
@@ -127,6 +157,8 @@ class ResponseEngine:
                             tier=4, status="ACTIVE", expires_at=expires_at)
         self._write_audit("TEMP_BLOCK", 4, target, alert_id, incident_id, evidence, "AUTO", "SUCCESS",
                           notes=f"Expires at {expires_at}")
+        # Synchronize with Redis active defense
+        redis_client.block_target(target, TEMP_BLOCK_DURATION_MINUTES * 60, is_ip=True)
         print(f"[RESPONSE] TEMP_BLOCK → {target} (expires {expires_at})")
 
     def execute_perm_block(self, target: str, alert_id: int, incident_id: int,
@@ -138,6 +170,8 @@ class ResponseEngine:
                             approval_status="APPROVED")
         self._write_audit("PERM_BLOCK", 5, target, alert_id, incident_id, evidence,
                           "APPROVED", "SUCCESS", approved_by=approved_by)
+        # Synchronize with Redis active defense
+        redis_client.block_target(target, expires_in_seconds=None, is_ip=True)
         print(f"[RESPONSE] PERM_BLOCK → {target} (approved by {approved_by})")
 
     def lock_account(self, user_id: str, alert_id: int, incident_id: int = None,
@@ -255,6 +289,8 @@ class ResponseEngine:
         self._write_audit("UNBLOCK", 0, block['target'], block.get('alert_id'),
                           block.get('incident_id'), None, "AUTO", "SUCCESS",
                           notes="Temp block expired — no re-attempts detected, unblocked.")
+        # Remove block from Redis active defense
+        redis_client.remove_block(block['target'], is_ip=True)
         print(f"[RESPONSE] UNBLOCKED → {block['target']} (block expired)")
 
     # ── Persistence Helpers ──

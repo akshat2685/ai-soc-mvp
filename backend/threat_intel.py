@@ -85,8 +85,12 @@ def _query_abuseipdb(ip: str) -> dict:
 
 def _cache_result(ip: str, result: dict):
     with get_db() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO threat_intel (ip, country, country_code, flag, isp, abuse_score, usage_type, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (ip, result["country"], result["country_code"], result.get("flag", ""), result["isp"], result["abuse_score"], result["usage_type"], result.get("source", "unknown"))
-        )
-        conn.commit()
+        try:
+            conn.execute("DELETE FROM threat_intel WHERE ip = ?", (ip,))
+            conn.execute(
+                "INSERT INTO threat_intel (ip, country, country_code, flag, isp, abuse_score, usage_type, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (ip, result["country"], result["country_code"], result.get("flag", ""), result["isp"], result["abuse_score"], result["usage_type"], result.get("source", "unknown"))
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[THREAT INTEL] Cache error: {e}")

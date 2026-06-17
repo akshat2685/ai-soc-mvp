@@ -85,6 +85,10 @@ class VerdictRequest(BaseModel):
         return v
 
 
+class IncidentUpdateRequest(BaseModel):
+    status: Optional[str] = None
+    analyst_notes: Optional[str] = None
+
 class ApprovalRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=1000)
 

@@ -15,10 +15,15 @@ Full-featured API with:
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends, BackgroundTasks, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest, APIKeyCreate, VulnerabilityRecord, VulnerabilityUpload, DevSecOpsAlert, AssetRecord, AssetInventoryUpload, IDSAlertLog, VirtualPatchRecord, VirtualPatchUpload, KnowledgeUpload
+from models import TelemetryLog, ChatRequest, LoginRequest, RegisterRequest, VerdictRequest, ApprovalRequest, APIKeyCreate, VulnerabilityRecord, VulnerabilityUpload, DevSecOpsAlert, AssetRecord, AssetInventoryUpload, IDSAlertLog, VirtualPatchRecord, VirtualPatchUpload, KnowledgeUpload, IncidentUpdateRequest
 from database import init_db, get_db
 from detection import check_for_abuse, calculate_fingerprint, update_entity_baselines
 from threat_intel import enrich_ip
+from telemetry import init_telemetry, get_tracer
+from redis_client import redis_client
+from kafka_producer import publish_log
+from kafka_consumer import consumer_worker
+from datetime import datetime
 from chat import handle_chat
 from pdf_report import generate_pdf_report
 from digest_report import generate_digest
@@ -43,12 +48,28 @@ _response_engine = ResponseEngine()
 # ── Lifespan ──
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize distributed tracing with OTel
+    init_telemetry("soc-backend")
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        FastAPIInstrumentor.instrument_app(app)
+    except Exception as e:
+        print(f"[OTEL] FastAPI instrumentor failed: {e}")
+        
     init_db()
-    # Start background tasks
+    
+    # Start Kafka Log Consumer background worker thread
+    consumer_worker.start()
+    
+    # Start baseline background updates (operates on ClickHouse / DB)
     asyncio.create_task(_baseline_updater())
-    asyncio.create_task(_block_expiry_checker())
-    asyncio.create_task(_rate_limiter_cleanup())
+    
+    # We no longer need _block_expiry_checker or _rate_limiter_cleanup as Redis handles
+    # block expiration TTL and sliding window rates natively without in-process CPU loops!
     yield
+    
+    # Stop Kafka Consumer worker on shutdown
+    consumer_worker.stop()
 
 
 app = FastAPI(title="AI SOC Platform API", lifespan=lifespan)
@@ -227,7 +248,39 @@ async def revoke_api_key(key_id: int, user: dict = Depends(require_auth)):
 # ══════════════════════════════════════════════════════════════
 
 @app.post("/ingest")
-async def ingest_log(log: TelemetryLog, request: Request, background_tasks: BackgroundTasks):
+async def ingest_log(request: Request, background_tasks: BackgroundTasks):
+    client_ip = request.client.host if request.client else "127.0.0.1"
+
+    # 1. Rate Limiting via Redis (extremely fast sliding-window check)
+    if not redis_client.check_rate_limit(client_ip, max_requests=500, window_seconds=60):
+        await asyncio.sleep(3)  # Tarpit delay to throttle attacker resources
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Max 500 requests per minute.",
+            headers={"Retry-After": "60"}
+        )
+
+    content_type = request.headers.get('content-type', '')
+    if "text/plain" in content_type:
+        raw_body = await request.body()
+        raw_log = raw_body.decode('utf-8')
+        
+        # Publish raw unstructured log to Kafka for async parsing, insertion, & analysis
+        log_data = {
+            "raw_log": raw_log,
+            "source_ip": client_ip,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        publish_log(log_data)
+        return {"status": "ok", "message": "Raw log received and queued for ingestion"}
+
+    try:
+        data = await request.json()
+        from models import TelemetryLog
+        log = TelemetryLog(**data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {e}")
+
     # API Key Authentication
     api_key = request.headers.get("X-API-Key")
     if not api_key:
@@ -245,32 +298,25 @@ async def ingest_log(log: TelemetryLog, request: Request, background_tasks: Back
         conn.execute("UPDATE api_keys SET last_used_at = datetime('now') WHERE key_value = ?", (api_key,))
         conn.commit()
 
-    client_ip = request.client.host if request.client else "unknown"
     device_fp = calculate_fingerprint(log.user_agent, log.device_id, log.headers)
 
-    # Enforce active blocks with a Tarpit delay
-    with get_db() as conn:
-        cur = conn.execute(
-            "SELECT 1 FROM responses WHERE action_type IN ('TEMP_BLOCK', 'PERM_BLOCK') AND status = 'ACTIVE' AND target IN (?, ?)",
-            (log.source_ip, device_fp)
-        )
-        if cur.fetchone():
-            await asyncio.sleep(5)  # Tarpit: waste blocked attacker connection
-            raise HTTPException(status_code=403, detail="Blocked due to suspicious activity.")
+    # 2. Check active blocks in Redis (temp or permanent blocks)
+    if redis_client.is_blocked(log.source_ip, device_fp):
+        await asyncio.sleep(5)  # Tarpit: waste blocked attacker connection
+        raise HTTPException(status_code=403, detail="Blocked due to suspicious activity.")
 
     # Apply Virtual Patches (WAF Rules)
     with get_db() as conn:
         cur = conn.execute("SELECT rule_name, pattern_regex, action FROM virtual_patches WHERE target_endpoint = '*' OR target_endpoint = ?", (log.endpoint or "",))
         for row in cur.fetchall():
             pattern = row["pattern_regex"]
-            # Check headers and parameters for malicious payload
             payload_str = str(log.headers) if log.headers else ""
             if log.user_agent: payload_str += f" {log.user_agent}"
             
             try:
                 if re.search(pattern, payload_str, re.IGNORECASE):
                     if row["action"] == "BLOCK":
-                        # Trigger an alert for WAF block
+                        # Trigger WAF block alert (synchronously or asynchronously)
                         from detection import trigger_incident
                         trigger_incident(
                             title=f"WAF Block: {row['rule_name']}",
@@ -282,39 +328,19 @@ async def ingest_log(log: TelemetryLog, request: Request, background_tasks: Back
                             confidence_score=95,
                             background_tasks=background_tasks
                         )
+                        # Block attacker IP immediately in Redis active defense (1 hour)
+                        redis_client.block_target(log.source_ip, expires_in_seconds=3600, is_ip=True)
                         raise HTTPException(status_code=403, detail="Blocked by Web Application Firewall.")
             except re.error:
-                pass # Ignore invalid regex rules
+                pass
 
-    # Rate limiting with a Tarpit delay
-    if not _rate_limiter.check(client_ip):
-        await asyncio.sleep(3)  # Tarpit: slow down volumetric/scraping rate
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded. Max 500 requests per minute.",
-            headers={"Retry-After": "60"}
-        )
+    # 3. Publish validated JSON log to Kafka (high-throughput, async OLAP write)
+    log_payload = log.model_dump()
+    log_payload["device_fingerprint"] = device_fp
+    log_payload["timestamp"] = datetime.utcnow().isoformat()
+    publish_log(log_payload)
 
-    with get_db() as conn:
-        conn.execute(
-            "INSERT INTO logs (event_type, source_ip, user_id, status, device_id, "
-            "user_agent, endpoint, method, device_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (log.event_type, log.source_ip, log.user_id, log.status,
-             log.device_id, log.user_agent, log.endpoint, log.method, device_fp)
-        )
-        conn.commit()
-
-    broadcast_event({
-        "type": "new_log",
-        "log": {
-            "event_type": log.event_type,
-            "source_ip": log.source_ip,
-            "user_id": log.user_id,
-            "status": log.status,
-        }
-    })
-
-    check_for_abuse(log.source_ip, log.user_id, log.device_id, log.user_agent, log.headers, background_tasks=background_tasks)
+    # Broadcast event is handled by the consumer worker once committed to ClickHouse
     return {"status": "ok"}
 
 
@@ -584,7 +610,7 @@ async def get_incident_details(incident_id: int):
 @app.post("/incidents/{incident_id}/verdict")
 async def set_incident_verdict(incident_id: int, req: VerdictRequest):
     with get_db() as conn:
-        conn.execute("UPDATE incidents SET status = 'RESOLVED', verdict = ? WHERE id = ?",
+        conn.execute("UPDATE incidents SET status = 'RESOLVED', verdict = ?, resolved_at = datetime('now') WHERE id = ?",
                      (req.verdict, incident_id))
         # Get all alerts in this incident
         cur = conn.execute("SELECT id, attack_type, evidence FROM alerts WHERE incident_id = ?",
@@ -599,9 +625,35 @@ async def set_incident_verdict(incident_id: int, req: VerdictRequest):
                 (alert['id'], incident_id, req.verdict, req.notes,
                  alert.get('attack_type'), alert.get('evidence'))
             )
+            # Continuous Learning Loop: Ingest feedback into RAG
+            try:
+                from rag_engine import ingest_analyst_feedback
+                ingest_analyst_feedback(alert['id'], alert.get('attack_type', 'UNKNOWN'), req.notes or '', req.verdict)
+            except Exception as e:
+                print(f"[RAG] Failed to ingest analyst feedback: {e}")
         conn.commit()
     return {"status": "ok"}
 
+@app.put("/api/v1/incidents/{incident_id}")
+async def update_incident(incident_id: int, req: IncidentUpdateRequest, user: dict = Depends(require_auth)):
+    with get_db() as conn:
+        updates = []
+        params = []
+        if req.status is not None:
+            updates.append("status = ?")
+            params.append(req.status)
+        if req.analyst_notes is not None:
+            updates.append("analyst_notes = ?")
+            params.append(req.analyst_notes)
+            
+        if not updates:
+            return {"status": "ok", "message": "No updates provided"}
+            
+        params.append(incident_id)
+        query = f"UPDATE incidents SET {', '.join(updates)} WHERE id = ?"
+        conn.execute(query, tuple(params))
+        conn.commit()
+    return {"status": "ok", "message": "Incident updated"}
 
 # ══════════════════════════════════════════════════════════════
 #  APPROVAL QUEUE
@@ -738,6 +790,9 @@ async def manual_unblock(block_id: int):
         conn.execute("UPDATE responses SET status = 'MANUALLY_REMOVED' WHERE id = ?", (block_id,))
         conn.commit()
 
+    # Synchronously remove block from Redis active defense
+    redis_client.remove_block(block['target'], is_ip=True)
+
     _response_engine._write_audit(
         "MANUAL_UNBLOCK", 0, block['target'], block.get('alert_id'),
         block.get('incident_id'), None, "APPROVED", "SUCCESS",
@@ -781,8 +836,8 @@ async def download_report(alert_id: int):
                        filename=f"shieldai_report_{alert_id}.pdf")
 
 
-@app.get("/digest/{period}")
-async def download_digest(period: str):
+@app.get("/api/v1/reports/digest")
+async def download_digest(period: str = "week", user: dict = Depends(require_auth)):
     if period not in ("week", "month"):
         raise HTTPException(status_code=400, detail="Period must be 'week' or 'month'")
     filepath = generate_digest(period)
@@ -797,6 +852,69 @@ async def download_digest(period: str):
 @app.post("/chat")
 async def chat_endpoint(req: ChatRequest):
     result = handle_chat(req.query)
+    return result
+
+
+# ══════════════════════════════════════════════════════════════
+#  THREAT INTELLIGENCE ENGINE (PHASE 3)
+# ══════════════════════════════════════════════════════════════
+
+@app.post("/threat-intel/sync")
+async def trigger_threat_intel_sync(background_tasks: BackgroundTasks, user: dict = Depends(require_auth)):
+    from threat_intel_engine import sync_cve_feed, sync_cisa_kev
+    
+    # We run these async tasks in the background so we don't block the API
+    async def run_sync():
+        await sync_cve_feed()
+        await sync_cisa_kev()
+        
+    background_tasks.add_task(run_sync)
+    return {"status": "ok", "message": "Threat Intelligence synchronization started in background"}
+
+
+@app.get("/threat-intel/cve/{cve_id}")
+async def get_cve_intel(cve_id: str, user: dict = Depends(require_auth)):
+    from threat_intel_engine import check_cve, check_cve_kev
+    
+    cve_data = check_cve(cve_id)
+    kev_data = check_cve_kev(cve_id)
+    
+    if not cve_data and not kev_data:
+        raise HTTPException(status_code=404, detail="CVE not found in Threat Intel database")
+        
+    return {
+        "cve_id": cve_id,
+        "is_kev": kev_data is not None,
+        "cve_details": cve_data,
+        "kev_details": kev_data
+    }
+
+
+@app.get("/threat-intel/ip/{ip}")
+async def get_ip_intel(ip: str, user: dict = Depends(require_auth)):
+    from threat_intel import enrich_ip
+    result = enrich_ip(ip)
+    if not result:
+        raise HTTPException(status_code=404, detail="IP Intel not available")
+    return result
+
+
+@app.get("/threat-intel/report.pdf")
+async def download_threat_intel_report(user: dict = Depends(require_auth)):
+    from threat_intel_pdf import generate_threat_intel_report
+    filepath = generate_threat_intel_report()
+    if not filepath:
+        raise HTTPException(status_code=500, detail="Failed to generate report")
+    return FileResponse(filepath, media_type="application/pdf",
+                       filename=f"shieldai_threat_intel.pdf")
+
+
+@app.get("/threat-intel/hash/{hash_value}")
+async def get_hash_intel(hash_value: str, user: dict = Depends(require_auth)):
+    from threat_intel_engine import check_file_hash
+    result = check_file_hash(hash_value)
+    if not result:
+        raise HTTPException(status_code=404, detail="Hash intel not available or query failed")
     return result
 
 
@@ -1188,3 +1306,175 @@ async def get_ip_reputation(ip: str, user: dict = Depends(require_auth)):
     from threat_intel import enrich_ip
     result = enrich_ip(ip)
     return result
+
+# ══════════════════════════════════════════════════════════════
+#  MULTI-AGENT FRAMEWORK (PHASE 5)
+# ══════════════════════════════════════════════════════════════
+from pydantic import BaseModel
+
+class AgentTaskRequest(BaseModel):
+    task: str
+
+@app.post("/api/v1/agents/task")
+async def trigger_agent_team(req: AgentTaskRequest, user: dict = Depends(require_auth)):
+    """Triggers the Multi-Agent Security Team workflow using LangGraph."""
+    try:
+        from agents.graph import run_soc_investigation
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Multi-Agent Framework error: {str(e)}")
+        
+    result = run_soc_investigation(req.task)
+    return {
+        "status": "ok",
+        "messages": result.get("messages", [])
+    }
+
+# ══════════════════════════════════════════════════════════════
+#  EXECUTIVE SECURITY DASHBOARD (PHASE 7)
+# ══════════════════════════════════════════════════════════════
+@app.get("/api/v1/executive/metrics")
+async def get_executive_metrics(user: dict = Depends(require_auth)):
+    with get_db() as conn:
+        # Incident metrics
+        open_inc = conn.execute("SELECT COUNT(*) as c FROM incidents WHERE status != 'RESOLVED'").fetchone()['c']
+        resolved_inc = conn.execute("SELECT COUNT(*) as c FROM incidents WHERE status = 'RESOLVED'").fetchone()['c']
+        
+        # MTTR (hours)
+        mttr_row = conn.execute("SELECT AVG((julianday(resolved_at) - julianday(timestamp)) * 24) as mttr FROM incidents WHERE status = 'RESOLVED' AND resolved_at IS NOT NULL").fetchone()
+        mttr = round(mttr_row['mttr'], 1) if mttr_row['mttr'] is not None else 0.0
+        
+        # MTTD (hours) - Approximated based on alert time vs first log time
+        mttd_row = conn.execute("""
+            SELECT AVG((julianday(a.timestamp) - julianday(l.min_ts)) * 24) as mttd
+            FROM alerts a
+            JOIN (SELECT source_ip, MIN(timestamp) as min_ts FROM logs GROUP BY source_ip) l 
+              ON a.attacker_ip = l.source_ip
+            WHERE a.attacker_ip IS NOT NULL
+        """).fetchone()
+        mttd = round(mttd_row['mttd'], 1) if mttd_row['mttd'] is not None else 0.0
+        
+        # Asset Risk Score & Vulns
+        high_vulns = conn.execute("SELECT COUNT(*) as c FROM vulnerabilities WHERE severity IN ('HIGH', 'CRITICAL')").fetchone()['c']
+        total_assets = conn.execute("SELECT COUNT(*) as c FROM assets").fetchone()['c']
+        asset_risk_score = min(100, (high_vulns * 10) + (total_assets * 2))  # simple heuristic
+        
+        # Security Posture Score
+        posture_score = max(0, 100 - (open_inc * 5) - (high_vulns * 3))
+        
+        # Threat Trends (Last 7 days)
+        cur = conn.execute("""
+            SELECT date(timestamp) as day, COUNT(*) as c 
+            FROM alerts 
+            WHERE timestamp >= datetime('now', '-7 days') 
+            GROUP BY day ORDER BY day ASC
+        """)
+        threat_trends = [dict(row) for row in cur.fetchall()]
+        
+        # Most Targeted IPs
+        cur = conn.execute("""
+            SELECT attacker_ip, COUNT(*) as c 
+            FROM alerts 
+            WHERE attacker_ip IS NOT NULL 
+            GROUP BY attacker_ip ORDER BY c DESC LIMIT 5
+        """)
+        top_targets = [dict(row) for row in cur.fetchall()]
+
+    metrics = {
+        "open_incidents": open_inc,
+        "resolved_incidents": resolved_inc,
+        "mttr_hours": mttr,
+        "mttd_hours": mttd,
+        "posture_score": posture_score,
+        "asset_risk_score": asset_risk_score,
+        "threat_trends": threat_trends,
+        "top_targets": top_targets
+    }
+
+    # Generate Executive Summary
+    from ai_engine import _call_llm
+    prompt = f"""You are the Executive Reporting Agent for EDYSOR SOC.
+Generate a concise, 1-paragraph C-suite executive summary based on these current security metrics:
+{json.dumps(metrics, indent=2)}
+
+Focus on the posture score, incident resolution times (MTTR), and overall risk. Be professional and authoritative."""
+    
+    summary = _call_llm(prompt, fallback="Executive Summary: The security posture is stable but requires continuous monitoring.")
+    metrics["executive_summary"] = summary
+
+    return metrics
+
+@app.get("/api/v1/incidents/{incident_id}/graph")
+async def get_incident_attack_graph(incident_id: int):
+    """
+    Returns nodes and edges for rendering an interactive Attack Graph.
+    Nodes: Attackers, Assets, Vulnerabilities, Alerts
+    """
+    nodes = []
+    edges = []
+    
+    with get_db() as conn:
+        def _dict_factory(cursor, row):
+            d = {}
+            for idx, col in enumerate(cursor.description):
+                d[col[0]] = row[idx]
+            return d
+        conn.row_factory = _dict_factory
+        
+        # 1. Fetch incident
+        cur = conn.execute("SELECT id, title FROM incidents WHERE id = ?", (incident_id,))
+        inc = cur.fetchone()
+        if not inc:
+            raise HTTPException(status_code=404, detail="Incident not found")
+            
+        nodes.append({"id": f"inc_{incident_id}", "label": f"Incident {incident_id}\\n{inc['title']}", "group": "incident"})
+        
+        # 2. Fetch associated alerts
+        cur = conn.execute("SELECT id, attack_type, attacker_ip FROM alerts WHERE incident_id = ?", (incident_id,))
+        alerts = cur.fetchall()
+        
+        attacker_ips = set()
+        
+        for a in alerts:
+            alert_id = a['id']
+            nodes.append({"id": f"alert_{alert_id}", "label": a['attack_type'], "group": "alert"})
+            edges.append({"from": f"alert_{alert_id}", "to": f"inc_{incident_id}", "label": "correlated_into"})
+            
+            # Attacker IP
+            ip = a['attacker_ip']
+            if ip:
+                if ip not in attacker_ips:
+                    nodes.append({"id": f"ip_{ip}", "label": ip, "group": "attacker"})
+                    attacker_ips.add(ip)
+                edges.append({"from": f"ip_{ip}", "to": f"alert_{alert_id}", "label": "triggered"})
+                
+        # 3. Fetch investigations for these alerts to get targeted assets and CVEs
+        for a in alerts:
+            cur = conn.execute("SELECT collected_assets, collected_vulnerabilities FROM investigations WHERE alert_id = ?", (a['id'],))
+            inv = cur.fetchone()
+            if inv:
+                assets = json.loads(inv['collected_assets'] or "[]")
+                vulns = json.loads(inv['collected_vulnerabilities'] or "[]")
+                
+                for asset in assets:
+                    asset_ip = asset.get('ip_address')
+                    if asset_ip:
+                        asset_id = f"asset_{asset_ip}"
+                        # avoid duplicates
+                        if not any(n['id'] == asset_id for n in nodes):
+                            nodes.append({"id": asset_id, "label": f"{asset_ip}\\n{asset.get('hostname','')}", "group": "asset"})
+                        
+                        edges.append({"from": f"alert_{a['id']}", "to": asset_id, "label": "targets"})
+                        
+                        # Find matching vulns for this asset
+                        for v in vulns:
+                            if v.get('ip_address') == asset_ip:
+                                cve = v.get('cve_id')
+                                vuln_id = f"vuln_{cve}"
+                                if not any(n['id'] == vuln_id for n in nodes):
+                                    nodes.append({"id": vuln_id, "label": cve, "group": "vulnerability"})
+                                edges.append({"from": asset_id, "to": vuln_id, "label": "has_vuln"})
+
+    return {"nodes": nodes, "edges": edges}
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

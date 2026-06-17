@@ -98,6 +98,10 @@ function initNavigation() {
             li.classList.add('active');
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById(`view-${li.dataset.view}`).classList.add('active');
+            
+            if (li.dataset.view === 'executive') {
+                fetchExecutiveMetrics();
+            }
         });
     });
 }
@@ -227,6 +231,75 @@ function animateCounter(id, target) {
 }
 
 // ══════════════════════════════════════════════════════════════
+//  EXECUTIVE METRICS (PHASE 7)
+// ══════════════════════════════════════════════════════════════
+
+let threatTrendsChart = null;
+
+async function fetchExecutiveMetrics() {
+    try {
+        const res = await fetch(`${API_BASE}/api/v1/executive/metrics`, { headers: authHeaders() });
+        if (!res.ok) throw new Error("Failed to load metrics");
+        const data = await res.json();
+        
+        animateCounter('exec-risk-score', Math.round(data.posture_score));
+        document.getElementById('exec-mttr').innerText = data.mttr_hours.toFixed(1) + 'h';
+        document.getElementById('exec-mttd').innerText = data.mttd_hours.toFixed(1) + 'h';
+        
+        const costPrevented = (data.resolved_incidents * 2000) + 15500;
+        document.getElementById('exec-cost-prevented').innerText = '$' + costPrevented.toLocaleString();
+        
+        updateExecutiveCharts(data.threat_trends, data.top_targets);
+    } catch (err) {
+        console.error("Failed to fetch executive metrics:", err);
+    }
+}
+
+function updateExecutiveCharts(threatTrends, topTargets) {
+    const trendCtx = document.getElementById('executive-trend-chart');
+    if (threatTrendsChart) threatTrendsChart.destroy();
+    
+    const labels = threatTrends.map(t => t.day);
+    const counts = threatTrends.map(t => t.c);
+    
+    threatTrendsChart = new Chart(trendCtx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{ 
+                label: 'Alerts', 
+                data: counts, 
+                borderColor: '#3b82f6', 
+                backgroundColor: 'rgba(59,130,246,0.2)',
+                borderWidth: 2, 
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            scales: { 
+                y: { beginAtZero: true, ticks: { color: '#64748b' }, grid: { color: 'rgba(51,65,85,0.3)' } }, 
+                x: { ticks: { color: '#64748b' }, grid: { display: false } } 
+            }, 
+            plugins: { legend: { display: false } } 
+        }
+    });
+
+    const tbody = document.querySelector('#top-targets-table tbody');
+    tbody.innerHTML = '';
+    topTargets.forEach(t => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="font-family:monospace;color:var(--primary);">${escapeHtml(t.attacker_ip)}</td>
+            <td><strong>${t.c}</strong> alerts</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// ══════════════════════════════════════════════════════════════
 //  CHARTS
 // ══════════════════════════════════════════════════════════════
 
@@ -314,12 +387,26 @@ function updateAllIncidentsTable(incidents) {
         const tr = document.createElement('tr');
         const time = new Date(inc.timestamp).toLocaleString();
         const vc = inc.verdict === 'TRUE_POSITIVE' ? 'color:var(--accent-green)' : inc.verdict === 'FALSE_POSITIVE' ? 'color:var(--accent-red)' : 'color:var(--text-muted)';
+        
+        let statusColor = 'rgba(59,130,246,0.12)';
+        let statusText = 'var(--primary)';
+        if (inc.status === 'INVESTIGATING') {
+            statusColor = 'rgba(234,179,8,0.12)'; // yellow
+            statusText = '#eab308';
+        } else if (inc.status === 'CONTAINED') {
+            statusColor = 'rgba(168,85,247,0.12)'; // purple
+            statusText = '#a855f7';
+        } else if (inc.status === 'CLOSED') {
+            statusColor = 'rgba(156,163,175,0.12)'; // gray
+            statusText = '#9ca3af';
+        }
+
         tr.innerHTML = `
             <td>${inc.id}</td><td>${time}</td>
             <td><strong>${inc.title}</strong></td>
             <td><span class="severity-badge severity-${inc.severity}">${inc.severity}</span></td>
             <td style="font-family:monospace;color:var(--primary);">${inc.correlation_key}</td>
-            <td><span class="attack-type-badge" style="background:rgba(59,130,246,0.12);color:var(--primary);">${inc.status}</span></td>
+            <td><span class="attack-type-badge" style="background:${statusColor};color:${statusText};">${inc.status}</span></td>
             <td style="${vc};font-weight:600;">${inc.verdict || 'PENDING'}</td>
             <td><button class="btn-investigate" onclick="openInvestigation(${inc.id})">Investigate</button></td>
         `;
@@ -483,6 +570,11 @@ function initModal() {
             document.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
             tab.classList.add('active');
             document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+            
+            if (tab.dataset.tab === 'graph' && !tab.dataset.loaded) {
+                renderAttackGraph(currentIncidentId);
+                tab.dataset.loaded = 'true';
+            }
         });
     });
     document.querySelectorAll('.verdict-btn').forEach(btn => {
@@ -501,6 +593,23 @@ function initModal() {
         if (!currentIncidentId) return;
         window.open(`${API_BASE}/alerts/${currentIncidentId}/report.pdf`, '_blank');
     });
+    document.getElementById('btn-save-case').addEventListener('click', async () => {
+        if (!currentIncidentId) return;
+        const status = document.getElementById('case-status').value;
+        const notes = document.getElementById('case-notes').value;
+        try {
+            await fetch(`${API_BASE}/incidents/${currentIncidentId}`, {
+                method: 'PUT',
+                headers: authHeaders(),
+                body: JSON.stringify({ status, analyst_notes: notes })
+            });
+            alert('Case details saved successfully.');
+            fetchAllData();
+        } catch (err) {
+            console.error('Failed to save case details', err);
+            alert('Error saving case details.');
+        }
+    });
 }
 
 async function openInvestigation(incidentId) {
@@ -518,12 +627,18 @@ async function openInvestigation(incidentId) {
 function closeModal() {
     document.getElementById('modal-overlay').classList.remove('active');
     currentIncidentId = null;
+    const graphTab = document.querySelector('.modal-tab[data-tab="graph"]');
+    if (graphTab) graphTab.dataset.loaded = '';
 }
 
 function renderInvestigation(data) {
     const { incident, alerts, related_logs, related_responses, enrichment } = data;
 
     document.getElementById('modal-title').innerText = `Incident: ${incident.title} (Entity: ${incident.correlation_key})`;
+
+    // Populate Case Workflow fields
+    document.getElementById('case-status').value = incident.status || 'ACTIVE';
+    document.getElementById('case-notes').value = incident.analyst_notes || '';
 
     // Reset to first tab
     document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
@@ -762,3 +877,65 @@ async function revokeApiKey(id) {
 
 // Fallback polling
 setInterval(fetchAllData, 5000);
+
+// ══════════════════════════════════════════════════════════════
+//  ATTACK GRAPH
+// ══════════════════════════════════════════════════════════════
+
+async function renderAttackGraph(incidentId) {
+    const container = document.getElementById('attack-graph-container');
+    container.innerHTML = '<div style="color:white; padding:2rem; text-align:center;">Building graph...</div>';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/v1/incidents/${incidentId}/graph`, { headers: authHeaders() });
+        if (!res.ok) throw new Error("Failed to fetch graph");
+        const data = await res.json();
+        
+        container.innerHTML = '';
+        
+        const nodes = new vis.DataSet(data.nodes.map(n => {
+            let color = '#3b82f6'; // default blue
+            let shape = 'dot';
+            if (n.group === 'attacker') { color = '#ef4444'; shape = 'diamond'; } // red
+            if (n.group === 'alert') { color = '#f59e0b'; shape = 'triangle'; } // yellow
+            if (n.group === 'incident') { color = '#8b5cf6'; shape = 'star'; } // purple
+            if (n.group === 'vulnerability') { color = '#10b981'; shape = 'hexagon'; } // green
+            
+            return {
+                id: n.id,
+                label: n.label,
+                group: n.group,
+                shape: shape,
+                color: {
+                    background: color,
+                    border: 'rgba(255,255,255,0.8)',
+                    highlight: { background: color, border: 'white' }
+                },
+                font: { color: 'white', face: 'Inter' }
+            };
+        }));
+        
+        const edges = new vis.DataSet(data.edges.map(e => ({
+            from: e.from,
+            to: e.to,
+            label: e.label,
+            font: { color: '#a1a1aa', align: 'middle', size: 10 },
+            color: { color: 'rgba(255,255,255,0.3)', highlight: '#3b82f6' },
+            arrows: { to: { enabled: true, scaleFactor: 0.5 } }
+        })));
+        
+        const options = {
+            physics: {
+                solver: 'forceAtlas2Based',
+                forceAtlas2Based: { gravitationalConstant: -50, centralGravity: 0.01, springLength: 100, springConstant: 0.08 }
+            },
+            interaction: { hover: true, tooltipDelay: 200 }
+        };
+        
+        new vis.Network(container, { nodes, edges }, options);
+    } catch (err) {
+        console.error(err);
+        container.innerHTML = '<div style="color:var(--danger); padding:2rem; text-align:center;">Error building graph. No data found.</div>';
+    }
+}
+

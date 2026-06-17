@@ -9,6 +9,11 @@ try:
 except ImportError:
     search_knowledge = None
 
+def serialize_datetime(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
 
 def run_investigation(alert_id: int) -> dict:
     """
@@ -39,13 +44,16 @@ def run_investigation(alert_id: int) -> dict:
         mitre_map = get_mitre_mapping(attack_type)
         
         # Parse timestamp safely
-        try:
-            alert_dt = datetime.strptime(alert_ts.split(".")[0], "%Y-%m-%d %H:%M:%S")
-        except ValueError:
+        if isinstance(alert_ts, datetime):
+            alert_dt = alert_ts
+        else:
             try:
-                alert_dt = datetime.strptime(alert_ts, "%Y-%m-%d %T")
-            except Exception:
-                alert_dt = datetime.now()
+                alert_dt = datetime.strptime(alert_ts.split(".")[0], "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                try:
+                    alert_dt = datetime.strptime(alert_ts, "%Y-%m-%d %T")
+                except Exception:
+                    alert_dt = datetime.now()
 
         # Step 1: Collect all related logs (+/- 30 mins)
         start_dt = alert_dt - timedelta(minutes=30)
@@ -143,6 +151,37 @@ def run_investigation(alert_id: int) -> dict:
                 if cur_al.fetchone():
                     previous_incidents.append(inc)
 
+        # Step 5b: Historical Context Memory (Last 6 months)
+        historical_context = ""
+        six_months_ago = (alert_dt - timedelta(days=180)).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Check if this exact attack type was seen for this IP or User in the past 6 months
+        query_hist = """
+            SELECT COUNT(*) as hist_count, 
+                   SUM(CASE WHEN verdict = 'FALSE_POSITIVE' THEN 1 ELSE 0 END) as fp_count 
+            FROM alerts 
+            WHERE attack_type = ? AND timestamp >= ? AND (attacker_ip = ?
+        """
+        params_hist = [attack_type, six_months_ago, attacker_ip]
+        if user_ids:
+            query_hist += " OR evidence LIKE ?"
+            params_hist.append(f"%{user_ids[0]}%")
+        query_hist += ")"
+        
+        cur_hist = conn.execute(query_hist, tuple(params_hist))
+        hist_row = cur_hist.fetchone()
+        
+        hist_count = hist_row["hist_count"] if hist_row else 0
+        fp_count = hist_row["fp_count"] if hist_row else 0
+        
+        if hist_count > 0:
+            fp_rate = (fp_count / hist_count) * 100 if hist_count > 0 else 0
+            historical_context = f"This exact alert ({attack_type}) triggered {hist_count} times in the last 6 months for this host/user. "
+            if fp_rate > 70:
+                historical_context += f"Behavior historically matches administrator/benign activity (Marked as False Positive {fp_count} times). Risk severely reduced."
+            else:
+                historical_context += f"Marked as False Positive {fp_count} times."
+
         # Step 6: Correlate evidence
         # Fetch threat intel
         threat_intel_record = None
@@ -220,11 +259,20 @@ def run_investigation(alert_id: int) -> dict:
                 conf_score += 10
                 reasons.append("Attacker IP has elevated abuse score (+10)")
                 
-        # Adjust based on asset criticality
+        # Adjust based on asset criticality & exposure
         critical_asset_targeted = any(asset.get("criticality") == "HIGH" for asset in collected_assets)
+        contains_customer_data = any(asset.get("contains_customer_data") == 1 for asset in collected_assets)
+        internet_facing = any(asset.get("internet_facing") == 1 for asset in collected_assets)
+        
         if critical_asset_targeted:
             conf_score += 10
             reasons.append("Target asset has HIGH criticality (+10)")
+        if contains_customer_data:
+            conf_score += 15
+            reasons.append("Target asset contains customer data (+15)")
+        if internet_facing:
+            conf_score += 5
+            reasons.append("Target asset is internet-facing (+5)")
 
         # Adjust based on matching vulnerabilities
         if collected_vulns:
@@ -240,6 +288,14 @@ def run_investigation(alert_id: int) -> dict:
         if "distinct IP addresses" in correlation_summary:
             conf_score += 10
             reasons.append("Device fingerprint shared across multiple IPs (+10)")
+
+        # Evaluate Historical Context memory
+        if "Risk severely reduced" in historical_context:
+            conf_score -= 40
+            reasons.append("Historical analysis strongly indicates false positive (-40)")
+        elif hist_count > 50:
+            conf_score -= 20
+            reasons.append("High historical volume of identical alerts (-20)")
 
         conf_score = min(100, max(0, conf_score))
         confidence_reasoning = ", ".join(reasons)
@@ -266,6 +322,9 @@ Collected Asset Info:
 
 User Activity History:
 {json.dumps(user_history)}
+
+Historical Context Memory:
+{historical_context if historical_context else "No significant historical context."}
 
 Timeline of events:
 {timeline_md}
@@ -370,16 +429,17 @@ Incident Details:
         technical_summary = _call_llm(tech_prompt, tech_fallback)
 
         # Insert the investigation record
+        conn.execute("DELETE FROM investigations WHERE alert_id = ?", (alert_id,))
         conn.execute(
-            "INSERT OR REPLACE INTO investigations ("
+            "INSERT INTO investigations ("
             "    alert_id, incident_id, collected_logs, collected_assets, "
             "    collected_vulnerabilities, collected_user_history, collected_previous_incidents, "
             "    correlation_summary, timeline, confidence_score, probable_root_cause, "
             "    recommended_remediation, executive_summary, technical_summary"
             ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                alert_id, incident_id, json.dumps(related_logs), json.dumps(collected_assets),
-                json.dumps(collected_vulns), json.dumps(user_history), json.dumps(previous_incidents),
+                alert_id, incident_id, json.dumps(related_logs, default=serialize_datetime), json.dumps(collected_assets, default=serialize_datetime),
+                json.dumps(collected_vulns, default=serialize_datetime), json.dumps(user_history, default=serialize_datetime), json.dumps(previous_incidents, default=serialize_datetime),
                 correlation_summary, timeline_md, conf_score, probable_root_cause,
                 recommended_remediation, executive_summary, technical_summary
             )

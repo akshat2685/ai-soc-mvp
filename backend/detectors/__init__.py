@@ -5,6 +5,9 @@ from .bot_detection import BotDetector
 from .account_takeover import ATODetector
 from .coupon_abuse import CouponAbuseDetector
 from .distributed_attack import DistributedAttackDetector
+from .ai_abuse import AIAbuseDetector
+from .behavioral_analytics import BehavioralAnomalyDetector
+from .network_anomaly import NetworkAnomalyDetector
 from .correlation import CorrelationEngine
 
 # Registry of all active detectors
@@ -15,6 +18,9 @@ DETECTOR_REGISTRY = [
     ATODetector(),
     CouponAbuseDetector(),
     DistributedAttackDetector(),
+    AIAbuseDetector(),
+    BehavioralAnomalyDetector(),
+    NetworkAnomalyDetector(),
 ]
 
 _correlation_engine = CorrelationEngine()

@@ -1,7 +1,7 @@
 """RAG Engine for semantic search using Qdrant and local embeddings."""
 import os
 from langchain_community.document_loaders import TextLoader, JSONLoader
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
@@ -15,8 +15,8 @@ QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
 COLLECTION_NAME = "soc_knowledge"
 
-# Initialize local embedding model (free, no API cost, runs on CPU)
-embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# Initialize cloud embedding model (avoids downloading 5GB PyTorch locally)
+embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
 
 def get_qdrant_client():
     try:
@@ -34,7 +34,7 @@ def init_qdrant():
     if not client.collection_exists(COLLECTION_NAME):
         client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+            vectors_config=VectorParams(size=768, distance=Distance.COSINE),
         )
         logger.info(f"Created Qdrant collection: {COLLECTION_NAME}")
 
@@ -105,3 +105,26 @@ def ingest_pdf_bytes(pdf_bytes: bytes, filename: str) -> int:
     }
     
     return ingest_text_document(full_text, metadata)
+
+def ingest_analyst_feedback(alert_id: int, attack_type: str, analyst_notes: str, verdict: str):
+    """
+    Continuous Learning Loop: Ingest analyst feedback on an alert directly into the RAG database.
+    This allows the AI to learn from False Positives and True Positives over time.
+    """
+    feedback_text = (
+        f"Analyst Feedback on {attack_type} Alert #{alert_id}:\n"
+        f"Verdict: {verdict}\n"
+        f"Analyst Notes: {analyst_notes}\n"
+        f"Rule of Thumb: If similar patterns occur, this is likely a {verdict}."
+    )
+    
+    metadata = {
+        "source": "analyst_feedback",
+        "alert_id": alert_id,
+        "attack_type": attack_type,
+        "verdict": verdict,
+        "title": f"Feedback: {attack_type} -> {verdict}"
+    }
+    
+    logger.info(f"Ingesting analyst feedback for Alert {alert_id} into continuous learning loop.")
+    return ingest_text_document(feedback_text, metadata)

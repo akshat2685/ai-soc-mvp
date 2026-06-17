@@ -131,9 +131,12 @@ class BaseDetector:
         citations = []
         for event in events[:max_citations]:
             if isinstance(event, dict) and 'id' in event:
+                ts = event.get('timestamp', '')
+                if hasattr(ts, 'isoformat'):
+                    ts = ts.isoformat()
                 citations.append({
                     "log_id": event['id'],
-                    "timestamp": event.get('timestamp', ''),
+                    "timestamp": ts,
                     "event_type": event.get('event_type', ''),
                     "source_ip": event.get('source_ip', ''),
                     "status": event.get('status', ''),

@@ -48,11 +48,12 @@ def verify_password(password: str, password_hash: str) -> bool:
     return hash_password(password) == password_hash
 
 
-def create_token(username: str, role: str) -> str:
+def create_token(username: str, role: str, tenant_id: str = "default") -> str:
     """Create a simple JWT-like token."""
     payload = {
         "username": username,
         "role": role,
+        "tenant_id": tenant_id,
         "exp": int(time.time()) + (TOKEN_EXPIRY_HOURS * 3600),
         "iat": int(time.time()),
     }
@@ -104,11 +105,12 @@ def authenticate(username: str, password: str) -> dict:
         )
         conn.commit()
 
-    token = create_token(username, user['role'])
+    token = create_token(username, user['role'], user.get('tenant_id', 'default'))
     return {
         "token": token,
         "username": username,
         "role": user['role'],
+        "tenant_id": user.get('tenant_id', 'default'),
     }
 
 
@@ -141,4 +143,8 @@ def get_user_from_token(token: str) -> dict:
     payload = verify_token(token)
     if not payload:
         return None
-    return {"username": payload["username"], "role": payload["role"]}
+    return {
+        "username": payload["username"], 
+        "role": payload["role"],
+        "tenant_id": payload.get("tenant_id", "default")
+    }
