@@ -75,7 +75,7 @@ class AnomalyDetector:
 
     def train(self, normal_logs: List[Dict[str, Any]]):
         """Train the Isolation Forest on a baseline of 'normal' traffic."""
-        if not self.model or not normal_logs:
+        if self.model is None or not normal_logs:
             return
             
         logger.info(f"Training IsolationForest on {len(normal_logs)} baseline events...")
@@ -92,13 +92,15 @@ class AnomalyDetector:
         """
         Returns True for Anomalous, False for Normal.
         """
-        if not self.model or not hasattr(self.model, "estimators_") or len(self.model.estimators_) == 0:
-            logger.warning("IsolationForest not trained yet. Defaulting to False.")
+        if self.model is None:
             return [False] * len(logs)
-            
+        
         X = self._extract_features(logs)
         X_scaled = self.scaler.transform(X)
         
-        # IsolationForest returns -1 for anomaly, 1 for normal
-        predictions = self.model.predict(X_scaled)
-        return [True if p == -1 else False for p in predictions]
+        try:
+            predictions = self.model.predict(X_scaled)
+            return [True if p == -1 else False for p in predictions]
+        except Exception as e:
+            logger.warning(f"IsolationForest detect failed (likely not trained): {e}")
+            return [False] * len(logs)

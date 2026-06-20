@@ -128,7 +128,7 @@ export default function IncidentsView() {
 
   return (
     <div className="p-6 h-[calc(100vh-4rem)] flex gap-6 overflow-hidden">
-      {selectedIncident && <MultiplayerCursor incidentId={selectedIncident.id} />}
+      {selectedIncident && <MultiplayerCursor incidentId={selectedIncident.id.toString()} />}
       
       {/* Left Panel — Incidents List */}
       <div className="w-[380px] flex-shrink-0 bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden shadow-lg flex flex-col h-full">

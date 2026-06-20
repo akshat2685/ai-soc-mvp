@@ -123,3 +123,13 @@ class MLCorrelationEngine:
         # Rank by severity
         severities_sort = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
         return sorted(incident_list, key=lambda x: severities_sort.get(x['severity'], 1), reverse=True)
+
+
+class CorrelationEngine:
+    def __init__(self):
+        self.ml_engine = MLCorrelationEngine()
+        
+    def run(self, source_ip: str, user_id: str, device_fingerprint: str):
+        # Fallback wrapper to satisfy __init__.py import
+        # The main correlation is handled in detection.py correlate_alert_to_incident
+        pass

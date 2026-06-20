@@ -14,18 +14,21 @@ from database import get_db
 URLHAUS_CSV_URL = "https://urlhaus.abuse.ch/downloads/csv_recent/"
 MALWARE_BAZAAR_CSV_URL = "https://bazaar.abuse.ch/export/csv/recent/"
 
+import zipfile
+import io
+
 def fetch_urlhaus():
     """Fetches the last 30 days of malicious URLs from URLhaus."""
     print("[CTI AGENT] Fetching latest URLhaus payloads...")
     try:
-        response = requests.get(URLHAUS_CSV_URL, timeout=10)
+        response = requests.get(URLHAUS_CSV_URL, timeout=15)
         if response.status_code != 200:
             print(f"[CTI AGENT] Failed to fetch URLhaus: {response.status_code}")
             return []
             
         csv_data = response.text
         # URLhaus CSVs start with comments starting with #
-        lines = [line for line in csv_data.split('\\n') if not line.startswith('#')]
+        lines = [line for line in csv_data.split('\n') if not line.startswith('#')]
         
         reader = csv.reader(lines)
         iocs = []
@@ -49,13 +52,13 @@ def fetch_malware_bazaar():
     """Fetches the recent malware hashes from MalwareBazaar."""
     print("[CTI AGENT] Fetching latest MalwareBazaar hashes...")
     try:
-        response = requests.get(MALWARE_BAZAAR_CSV_URL, timeout=15)
+        response = requests.get(MALWARE_BAZAAR_CSV_URL, timeout=20)
         if response.status_code != 200:
             print(f"[CTI AGENT] Failed to fetch MalwareBazaar: {response.status_code}")
             return []
             
         csv_data = response.text
-        lines = [line for line in csv_data.split('\\n') if not line.startswith('#')]
+        lines = [line for line in csv_data.split('\n') if not line.startswith('#')]
         
         reader = csv.reader(lines)
         iocs = []

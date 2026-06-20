@@ -23,11 +23,15 @@ services:
       - POSTGRES_DB=soc
       - POSTGRES_USER=soc
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme_in_production}
+      - POSTGRES_URL=postgresql://soc:${POSTGRES_PASSWORD:-changeme_in_production}@postgres:5432/soc
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_URL=redis://redis:6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - CLICKHOUSE_HOST=clickhouse
       - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-changeme_clickhouse}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
@@ -94,6 +98,9 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest
@@ -101,6 +108,9 @@ services:
     ports:
       - "8123:8123"
       - "9000:9000"
+    environment:
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-changeme_clickhouse}
     ulimits:
       nofile:
         soft: 262144

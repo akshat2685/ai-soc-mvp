@@ -44,14 +44,19 @@ ROLE_PERMISSIONS = {
 }
 
 
+import bcrypt
+
 def hash_password(password: str) -> str:
     """Hash a password with bcrypt."""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify a password against its bcrypt hash."""
-    return pwd_context.verify(password, password_hash)
+    try:
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+    except Exception:
+        return False
 
 
 def create_token(username: str, role: str, tenant_id: str = "default") -> str:

@@ -72,4 +72,5 @@ class KafkaEventConsumer:
             logger.error(f"Event processing failed: {e}")
 
 # Global instance
-event_consumer = KafkaEventConsumer()
+import os
+event_consumer = KafkaEventConsumer(bootstrap_servers=os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"))

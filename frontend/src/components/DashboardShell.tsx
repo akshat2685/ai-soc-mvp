@@ -20,7 +20,8 @@ import {
   Menu, 
   X,
   Radio,
-  Bell
+  Bell,
+  Zap
 } from 'lucide-react';
 
 interface ShellProps {

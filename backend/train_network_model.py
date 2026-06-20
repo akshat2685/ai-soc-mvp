@@ -10,7 +10,7 @@ import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
+MODELS_DIR = os.path.join(os.path.dirname(__file__), "ml_models")
 os.makedirs(MODELS_DIR, exist_ok=True)
 DATASET_PATH = os.path.join(os.path.dirname(__file__), "..", "scratch", "dataset.csv")
 MODEL_PATH = os.path.join(MODELS_DIR, "network_model.pkl")

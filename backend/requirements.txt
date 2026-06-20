@@ -27,7 +27,7 @@ opentelemetry-instrumentation-fastapi>=0.41b0
 hvac>=2.1.0
 
 # Security Hardening
-fastapi-limiter>=0.1.5
+fastapi-limiter<0.2.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 

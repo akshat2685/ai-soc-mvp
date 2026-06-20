@@ -51,11 +51,15 @@ _response_engine = ResponseEngine()
 async def lifespan(app: FastAPI):
     # Initialize Global Rate Limiting
     try:
+        import os
         import redis.asyncio as redis
         from fastapi_limiter import FastAPILimiter
-        redis_conn = redis.from_url("redis://localhost:6379", encoding="utf-8", decode_responses=True)
+        redis_host = os.environ.get("REDIS_HOST", "localhost")
+        redis_port = os.environ.get("REDIS_PORT", "6379")
+        redis_url = os.environ.get("REDIS_URL", f"redis://{redis_host}:{redis_port}")
+        redis_conn = redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
         await FastAPILimiter.init(redis_conn)
-        print("[SECURITY] Global Rate Limiter initialized.")
+        print(f"[SECURITY] Global Rate Limiter initialized at {redis_url}.")
     except Exception as e:
         print(f"[SECURITY] Rate Limiter initialization failed: {e}")
 
@@ -77,6 +81,14 @@ async def lifespan(app: FastAPI):
         await event_consumer.start()
     except Exception as e:
         print(f"[KAFKA] Async client init failed: {e}")
+
+    # Start legacy Kafka consumers (which actually handle ingestion and detection)
+    try:
+        from kafka_consumer import consumer_worker, analyst_feedback_worker
+        consumer_worker.start()
+        analyst_feedback_worker.start()
+    except Exception as e:
+        print(f"[KAFKA] Legacy consumer init failed: {e}")
     
     # Start baseline background updates (operates on ClickHouse / DB)
     asyncio.create_task(_baseline_updater())
@@ -211,7 +223,7 @@ async def _baseline_updater():
 async def _ml_continuous_learning_loop():
     """Train Anomaly Detection and adjust rule confidence dynamically."""
     from learning.online_updater import OnlineUpdater
-    from models.anomaly_detection import AnomalyDetector
+    from ml_models.anomaly_detection import AnomalyDetector
     from database import get_db
     
     updater = OnlineUpdater()
@@ -328,9 +340,8 @@ def broadcast_event(data: dict):
 #  AUTH ENDPOINTS
 # ══════════════════════════════════════════════════════════════
 
-from fastapi_limiter.depends import RateLimiter
 
-@app.post("/auth/login", dependencies=[Depends(RateLimiter(times=10, every=60))])
+@app.post("/auth/login")
 async def login(req: LoginRequest):
     result = authenticate(req.username, req.password)
     if not result:

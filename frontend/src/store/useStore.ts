@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ActivePage = 'dashboard' | 'incidents' | 'graph' | 'memory' | 'executive' | 'reporting' | 'threat-intel' | 'settings';
+export type ActivePage = 'dashboard' | 'incidents' | 'graph' | 'memory' | 'executive' | 'reporting' | 'threat-intel' | 'settings' | 'federation' | 'chaos';
 
 export interface User {
   username: string;

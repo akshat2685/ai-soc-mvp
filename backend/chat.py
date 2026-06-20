@@ -68,6 +68,8 @@ def _handle_data_query(query: str) -> dict:
             columns = [desc[0] for desc in cur.description] if cur.description else []
             rows = [dict(zip(columns, row)) for row in cur.fetchall()]
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {
             "query": query,
             "answer": f"I tried to query the database but encountered an error: {str(e)}. "

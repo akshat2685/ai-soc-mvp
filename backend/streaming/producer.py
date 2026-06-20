@@ -50,4 +50,5 @@ class KafkaEventProducer:
             logger.error(f"Failed to publish to Kafka topic {topic}: {e}")
 
 # Global instance
-event_producer = KafkaEventProducer()
+import os
+event_producer = KafkaEventProducer(bootstrap_servers=os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"))

@@ -48,8 +48,8 @@ def release_postgres_connection(conn):
 def translate_query(sql: str, db_type: str = "postgres") -> str:
     """Translate SQLite-dialect SQL statements to target database dialects."""
     if db_type == "postgres":
-        # 1. ? -> %s
-        sql = sql.replace("?", "%s")
+        # 1. ? -> %s (only outside of single quotes)
+        sql = re.sub(r"\?(?=(?:[^']*'[^']*')*[^']*$)", "%s", sql)
         # 2. AUTOINCREMENT -> SERIAL
         sql = re.sub(r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT", "SERIAL PRIMARY KEY", sql, flags=re.IGNORECASE)
         # 4. datetime('now') -> CURRENT_TIMESTAMP
@@ -75,8 +75,8 @@ def translate_query(sql: str, db_type: str = "postgres") -> str:
             sql, flags=re.IGNORECASE
         )
     elif db_type == "clickhouse":
-        # 1. ? -> %s
-        sql = sql.replace("?", "%s")
+        # 1. ? -> %s (only outside of single quotes)
+        sql = re.sub(r"\?(?=(?:[^']*'[^']*')*[^']*$)", "%s", sql)
         # 2. datetime('now', '-5 minutes') -> now() - INTERVAL 5 MINUTE
         sql = re.sub(r"datetime\('now',\s*'-(?P<val>\d+)\s+(?P<unit>\w+)'\)", r"now() - INTERVAL \g<val> \g<unit>", sql, flags=re.IGNORECASE)
         # 3. datetime('now') -> now()
@@ -132,7 +132,13 @@ class UnifiedCursor:
         
         is_logs_query = re.search(r"\b(FROM|JOIN|INTO|UPDATE)\s+logs\b", sql, re.IGNORECASE) is not None
         
-        if is_logs_query and get_clickhouse_client():
+        # Skip ClickHouse for aggregate-only queries (COUNT, SUM, etc.) since hardcoded
+        # column descriptions won't match. Also skip INSERT/UPDATE/DELETE.
+        is_aggregate = re.search(r"\b(COUNT|SUM|AVG|MIN|MAX)\s*\(", sql, re.IGNORECASE) is not None
+        is_write = re.search(r"^\s*(INSERT|UPDATE|DELETE|CREATE)", sql, re.IGNORECASE) is not None
+        is_group_by = re.search(r"\bGROUP\s+BY\b", sql, re.IGNORECASE) is not None
+        
+        if is_logs_query and get_clickhouse_client() and not is_aggregate and not is_write and not is_group_by:
             # ClickHouse OLAP route
             ch_sql = translate_query(sql, db_type="clickhouse")
             logger.info(f"[ROUTER] OLAP ClickHouse query executed.")
@@ -149,7 +155,7 @@ class UnifiedCursor:
                 logger.error(f"ClickHouse failed: {e}. Falling back to relational DB.")
                 is_logs_query = False
                 
-        if not is_logs_query or not get_clickhouse_client():
+        if self.active_cur is None:
             if self.db_type == "postgres":
                 pg_sql = translate_query(sql, db_type="postgres")
                 logger.info(f"[ROUTER] OLTP Postgres query executed. Parameters omitted for security.")

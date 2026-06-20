@@ -8,7 +8,7 @@ except ImportError:
 from .base import BaseDetector, DetectionResult
 from database import get_db
 
-MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models', 'network_model.pkl')
+MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ml_models', 'network_model.pkl')
 
 class NetworkAnomalyDetector(BaseDetector):
     name = "Network Anomaly ML Detector"
