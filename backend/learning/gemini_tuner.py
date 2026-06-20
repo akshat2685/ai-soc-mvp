@@ -23,8 +23,10 @@ def main():
     
     try:
         import google.generativeai as genai
-    except ImportError:
-        print("ERROR: google-generativeai SDK is not installed. Run: pip install google-generativeai")
+    except ImportError as e:
+        print(f"ERROR: google-generativeai SDK import failed. Details: {e}")
+        import traceback
+        traceback.print_exc()
         return
         
     genai.configure(api_key=api_key)

@@ -9,9 +9,11 @@ from .ai_abuse import AIAbuseDetector
 from .behavioral_analytics import BehavioralAnomalyDetector
 from .network_anomaly import NetworkAnomalyDetector
 from .correlation import CorrelationEngine
+from .cti_detector import CtiDetector
 
 # Registry of all active detectors
 DETECTOR_REGISTRY = [
+    CtiDetector(),
     CredentialStuffingDetector(),
     OTPAbuseDetector(),
     BotDetector(),

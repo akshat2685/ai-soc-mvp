@@ -326,7 +326,16 @@ def init_db():
                 last_checked DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """,
-
+            """
+            CREATE TABLE IF NOT EXISTS global_ioc_feed (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ioc_value TEXT UNIQUE,
+                ioc_type TEXT,
+                source TEXT,
+                threat_tags TEXT,
+                date_added DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
             """
             CREATE TABLE IF NOT EXISTS vulnerabilities (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

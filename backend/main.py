@@ -84,6 +84,9 @@ async def lifespan(app: FastAPI):
     # Start Continuous Machine Learning loop
     asyncio.create_task(_ml_continuous_learning_loop())
     
+    # Start Cyber Threat Intelligence (CTI) Agent Loop
+    asyncio.create_task(_daily_cti_sync())
+    
     # Mark health check startup complete
     health_checker.mark_startup_complete()
     
@@ -231,6 +234,17 @@ async def _ml_continuous_learning_loop():
                     print("[ML LEARNING] IsolationForest retrained on latest traffic.")
         except Exception as e:
             print(f"[ML LEARNING] Continuous loop failed: {e}")
+
+async def _daily_cti_sync():
+    """Runs the CTI Agent to download global threat feeds every 24 hours."""
+    from learning.cti_agent import run_daily_cti_ingestion
+    while True:
+        try:
+            await run_daily_cti_ingestion()
+        except Exception as e:
+            print(f"[CTI AGENT] Sync failed: {e}")
+        # Wait 24 hours before next sync
+        await asyncio.sleep(86400)
 
 
 async def _block_expiry_checker():
