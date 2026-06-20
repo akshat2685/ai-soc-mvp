@@ -7,10 +7,13 @@ import asyncio
 router = APIRouter(prefix="/api/v1", tags=["logs"])
 logger = logging.getLogger(__name__)
 
-# Mock send_to_kafka for now since Kafka isn't fully integrated here yet
-async def send_to_kafka(topic: str, value: dict):
-    pass
+from streaming.producer import event_producer
 
+async def send_to_kafka(topic: str, value: dict):
+    # Ensure timestamp is serialized properly
+    if 'timestamp' in value and hasattr(value['timestamp'], 'isoformat'):
+        value['timestamp'] = value['timestamp'].isoformat()
+    await event_producer.publish(topic, value)
 @router.post("/logs")
 async def ingest_log(log_entry: LogEntry, request: Request):
     """

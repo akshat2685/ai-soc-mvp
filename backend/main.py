@@ -69,8 +69,14 @@ async def lifespan(app: FastAPI):
         
     init_db()
     
-    # Start Kafka Log Consumer background worker thread
-    consumer_worker.start()
+    # Start new Async Kafka Producers/Consumers
+    try:
+        from streaming.producer import event_producer
+        from streaming.consumer import event_consumer
+        await event_producer.start()
+        await event_consumer.start()
+    except Exception as e:
+        print(f"[KAFKA] Async client init failed: {e}")
     
     # Start baseline background updates (operates on ClickHouse / DB)
     asyncio.create_task(_baseline_updater())
@@ -82,8 +88,12 @@ async def lifespan(app: FastAPI):
     # block expiration TTL and sliding window rates natively without in-process CPU loops!
     yield
     
-    # Stop Kafka Consumer worker on shutdown
-    consumer_worker.stop()
+    # Stop Async Kafka clients gracefully on shutdown
+    try:
+        await event_producer.stop()
+        await event_consumer.stop()
+    except Exception as e:
+        print(f"[KAFKA] Shutdown error: {e}")
 
 
 app = FastAPI(title="AI SOC Platform API", lifespan=lifespan)
