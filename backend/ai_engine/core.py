@@ -27,16 +27,37 @@ def _call_gemini_with_retry(model, prompt: str) -> str:
     response = model.generate_content(prompt)
     return response.text
 
+from pydantic import BaseModel, Field, ValidationError
+
+class LLMInput(BaseModel):
+    prompt: str = Field(..., max_length=15000)
+
 def call_llm(prompt: str, fallback: str) -> str:
-    """Core LLM call with error handling and exponential backoff."""
+    """Core LLM call with error handling, input validation, and exponential backoff."""
+    from logging_config import get_logger
+    logger = get_logger(__name__)
+    
+    # Input Validation & Prompt Injection Prevention
+    try:
+        validated_input = LLMInput(prompt=prompt)
+    except ValidationError as e:
+        logger.warning(f"[AI ENGINE] Prompt validation failed (length limit): {e}")
+        return fallback
+        
+    # Basic Prompt Injection Filters
+    upper_prompt = validated_input.prompt.upper()
+    dangerous_keywords = ["IGNORE PREVIOUS INSTRUCTIONS", "SYSTEM PROMPT", "<|IM_START|>"]
+    for keyword in dangerous_keywords:
+        if keyword in upper_prompt:
+            logger.warning(f"[SECURITY] Possible Prompt Injection detected: {keyword}")
+            return "ERROR: Malicious prompt detected."
+            
     model = _get_gemini_model()
     if model:
         try:
-            return _call_gemini_with_retry(model, prompt)
+            return _call_gemini_with_retry(model, validated_input.prompt)
         except RetryError as e:
-            from logging_config import get_logger
-            get_logger(__name__).critical(f"[AI ENGINE] Gemini API permanent failure after retries: {e}, using fallback.")
+            logger.critical(f"[AI ENGINE] Gemini API permanent failure after retries: {e}, using fallback.")
         except Exception as e:
-            from logging_config import get_logger
-            get_logger(__name__).error(f"[AI ENGINE] Gemini API unexpected error: {e}, using fallback.")
+            logger.error(f"[AI ENGINE] Gemini API unexpected error: {e}, using fallback.")
     return fallback

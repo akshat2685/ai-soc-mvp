@@ -135,26 +135,10 @@ class UnifiedCursor:
         if is_logs_query and get_clickhouse_client():
             # ClickHouse OLAP route
             ch_sql = translate_query(sql, db_type="clickhouse")
-            if params:
-                formatted_params = []
-                for p in params:
-                    if isinstance(p, str):
-                        escaped = p.replace("'", "''")
-                        formatted_params.append(f"'{escaped}'")
-                    elif p is None:
-                        formatted_params.append("NULL")
-                    else:
-                        formatted_params.append(str(p))
-                
-                for fp in formatted_params:
-                    if "?" in ch_sql:
-                        ch_sql = ch_sql.replace("?", fp, 1)
-                    elif "%s" in ch_sql:
-                        ch_sql = ch_sql.replace("%s", fp, 1)
-            
-            logger.info(f"[ROUTER] OLAP ClickHouse: {ch_sql}")
+            logger.info(f"[ROUTER] OLAP ClickHouse query executed.")
             try:
-                rows = query_clickhouse(ch_sql)
+                # Use native parameter binding to prevent SQL injection
+                rows = query_clickhouse(ch_sql, params=params)
                 self.description = [("id",), ("timestamp",), ("event_type",), ("source_ip",), ("user_id",), ("status",), ("device_id",), ("user_agent",), ("endpoint",), ("method",), ("device_fingerprint",), ("geo_country",), ("geo_asn",), ("tenant_id",)]
                 cols = [d[0] for d in self.description]
                 self._results = [UnifiedRow(cols, [r.get(c) for c in cols]) for r in rows]
@@ -168,7 +152,7 @@ class UnifiedCursor:
         if not is_logs_query or not get_clickhouse_client():
             if self.db_type == "postgres":
                 pg_sql = translate_query(sql, db_type="postgres")
-                logger.info(f"[ROUTER] OLTP Postgres: {pg_sql} (params: {params})")
+                logger.info(f"[ROUTER] OLTP Postgres query executed. Parameters omitted for security.")
                 
                 # Check for INSERT to populate lastrowid (returning primary key id)
                 if pg_sql.strip().upper().startswith("INSERT INTO") and "RETURNING" not in pg_sql.upper():
@@ -193,7 +177,7 @@ class UnifiedCursor:
                 self.description = self.pg_cur.description
                 self.active_cur = "postgres"
             else:
-                logger.info(f"[ROUTER] OLTP SQLite: {sql}")
+                logger.info(f"[ROUTER] OLTP SQLite query executed. Parameters omitted for security.")
                 self.sl_cur.execute(sql, params or ())
                 self.description = self.sl_cur.description
                 self.lastrowid = self.sl_cur.lastrowid
