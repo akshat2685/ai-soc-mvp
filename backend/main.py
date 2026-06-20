@@ -81,6 +81,9 @@ async def lifespan(app: FastAPI):
     # Start baseline background updates (operates on ClickHouse / DB)
     asyncio.create_task(_baseline_updater())
     
+    # Start Continuous Machine Learning loop
+    asyncio.create_task(_ml_continuous_learning_loop())
+    
     # Mark health check startup complete
     health_checker.mark_startup_complete()
     
@@ -201,6 +204,33 @@ async def _baseline_updater():
             update_entity_baselines()
         except Exception as e:
             print(f"[BASELINE] Update failed: {e}")
+
+async def _ml_continuous_learning_loop():
+    """Train Anomaly Detection and adjust rule confidence dynamically."""
+    from learning.online_updater import OnlineUpdater
+    from models.anomaly_detection import AnomalyDetector
+    from database import get_db
+    
+    updater = OnlineUpdater()
+    detector = AnomalyDetector()
+    
+    while True:
+        await asyncio.sleep(86400)  # Run every 24 hours
+        try:
+            # 1. Decay stale rules
+            decayed = updater.apply_confidence_decay()
+            print(f"[ML LEARNING] Decayed confidence for {decayed} stale rules.")
+            
+            # 2. Retrain Zero-Day Detector
+            with get_db() as conn:
+                # Fetch recent benign traffic as baseline
+                cur = conn.execute("SELECT * FROM alerts WHERE severity = 'Low' LIMIT 1000")
+                normal_traffic = [dict(r) for r in cur.fetchall()]
+                if normal_traffic:
+                    detector.train(normal_traffic)
+                    print("[ML LEARNING] IsolationForest retrained on latest traffic.")
+        except Exception as e:
+            print(f"[ML LEARNING] Continuous loop failed: {e}")
 
 
 async def _block_expiry_checker():
