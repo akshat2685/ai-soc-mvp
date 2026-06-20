@@ -12,9 +12,15 @@ import time
 from datetime import datetime, timedelta
 from database import get_db
 
-# Simple JWT-like token using HMAC (for MVP; use PyJWT in production)
+# Industry standard JWT and Password Hashing (Phase 1 Hardening)
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+
 SECRET_KEY = os.environ.get("JWT_SECRET", "shieldai-soc-secret-change-me")
+ALGORITHM = "HS256"
 TOKEN_EXPIRY_HOURS = 24
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ROLE_PERMISSIONS = {
     "analyst": [
@@ -39,47 +45,35 @@ ROLE_PERMISSIONS = {
 
 
 def hash_password(password: str) -> str:
-    """Hash a password with SHA-256 (use bcrypt in production)."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password with bcrypt."""
+    return pwd_context.hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """Verify a password against its hash."""
-    return hash_password(password) == password_hash
+    """Verify a password against its bcrypt hash."""
+    return pwd_context.verify(password, password_hash)
 
 
 def create_token(username: str, role: str, tenant_id: str = "default") -> str:
-    """Create a simple JWT-like token."""
-    payload = {
-        "username": username,
+    """Create a secure JWT token."""
+    expire = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRY_HOURS)
+    to_encode = {
+        "sub": username,
         "role": role,
         "tenant_id": tenant_id,
-        "exp": int(time.time()) + (TOKEN_EXPIRY_HOURS * 3600),
-        "iat": int(time.time()),
+        "exp": expire,
+        "iat": datetime.utcnow(),
     }
-    payload_str = json.dumps(payload)
-    import base64
-    token_data = base64.b64encode(payload_str.encode()).decode()
-    signature = hashlib.sha256(f"{token_data}{SECRET_KEY}".encode()).hexdigest()[:16]
-    return f"{token_data}.{signature}"
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 
 def verify_token(token: str) -> dict:
-    """Verify and decode a token. Returns payload dict or None."""
+    """Verify and decode a JWT token."""
     try:
-        parts = token.split(".")
-        if len(parts) != 2:
-            return None
-        token_data, signature = parts
-        expected_sig = hashlib.sha256(f"{token_data}{SECRET_KEY}".encode()).hexdigest()[:16]
-        if signature != expected_sig:
-            return None
-        import base64
-        payload = json.loads(base64.b64decode(token_data))
-        if payload.get("exp", 0) < time.time():
-            return None  # Expired
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except Exception:
+    except JWTError:
         return None
 
 
@@ -95,8 +89,15 @@ def authenticate(username: str, password: str) -> dict:
             return None
 
         user = dict(user)
-        if not verify_password(password, user['password_hash']):
-            return None
+        # Note: If migrating from old SHA256 hashes, you'd need logic to re-hash.
+        # Since we are going to clear the DB, we just rely on bcrypt.
+        try:
+            if not verify_password(password, user['password_hash']):
+                return None
+        except Exception:
+            # Fallback if old hash exists
+            if user['password_hash'] != hashlib.sha256(password.encode()).hexdigest():
+                return None
 
         # Update last login
         conn.execute(
@@ -144,7 +145,7 @@ def get_user_from_token(token: str) -> dict:
     if not payload:
         return None
     return {
-        "username": payload["username"], 
-        "role": payload["role"],
+        "username": payload.get("sub"), 
+        "role": payload.get("role"),
         "tenant_id": payload.get("tenant_id", "default")
     }

@@ -49,6 +49,16 @@ _response_engine = ResponseEngine()
 # ── Lifespan ──
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize Global Rate Limiting
+    try:
+        import redis.asyncio as redis
+        from fastapi_limiter import FastAPILimiter
+        redis_conn = redis.from_url("redis://localhost:6379", encoding="utf-8", decode_responses=True)
+        await FastAPILimiter.init(redis_conn)
+        print("[SECURITY] Global Rate Limiter initialized.")
+    except Exception as e:
+        print(f"[SECURITY] Rate Limiter initialization failed: {e}")
+
     # Initialize distributed tracing with OTel
     init_telemetry("soc-backend")
     try:
@@ -220,7 +230,9 @@ def broadcast_event(data: dict):
 #  AUTH ENDPOINTS
 # ══════════════════════════════════════════════════════════════
 
-@app.post("/auth/login")
+from fastapi_limiter.depends import RateLimiter
+
+@app.post("/auth/login", dependencies=[Depends(RateLimiter(times=10, every=60))])
 async def login(req: LoginRequest):
     result = authenticate(req.username, req.password)
     if not result:

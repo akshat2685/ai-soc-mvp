@@ -21,7 +21,8 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
-      - JWT_SECRET=shieldai-change-this-in-production
+      - JWT_SECRET=${JWT_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - PYTHONPATH=/app/backend
     volumes:
       - ./backend:/app/backend

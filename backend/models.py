@@ -4,6 +4,11 @@ from typing import Optional
 from datetime import datetime
 import re
 
+class AlertInput(BaseModel):
+    """Hardened Alert Input model."""
+    title: str = Field(..., max_length=200)
+    evidence: dict
+    confidence_score: float = Field(default=80.0, ge=0.0, le=100.0)
 
 class TelemetryLog(BaseModel):
     """Validated telemetry log for ingestion."""

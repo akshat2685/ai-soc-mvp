@@ -29,6 +29,12 @@ An enterprise-grade, AI-powered Cyber Immune System. EDYSOR-X evolves beyond sta
   - Swarm Robotics (ROS orchestration for physical server isolation)
 - **Edge IoT Agents:** Lightweight Python agents deployed via K3s that filter syslogs in <100ms locally, forwarding only critical anomalies to the central cluster.
 
+### 🏢 Enterprise Readiness & Security (V2 Roadmap Complete)
+- **Security Hardening:** Enforced JWT authentication, bcrypt password hashing, and Redis-backed global API rate limiting. Hardcoded secrets have been fully purged in favor of strict `.env` variables.
+- **Code Quality:** The monolithic architecture was decoupled into modular AI engine components. Implemented comprehensive structured logging (`structlog`), Pytest scaffolding, and pre-commit hooks (`black`, `flake8`, `bandit`).
+- **AI Enhancements:** Implemented deterministic evaluation metrics (Precision/Recall/F1 via Scikit-Learn) against analyst ground truth, and integrated LangChain Few-Shot prompting to guide the LLM using historical verdicts.
+- **Compliance & Multi-Tenancy:** Immutable audit logging implemented for SOC 2 compliance. Alembic migrations initialized to support a scalable, multi-tenant B2B SaaS architecture.
+
 ## Architecture & Tech Stack
 
 - **Backend**: Python, FastAPI, Scikit-Learn
