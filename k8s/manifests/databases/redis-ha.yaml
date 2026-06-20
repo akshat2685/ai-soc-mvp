@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-ha
+  namespace: default
+  labels:
+    app: redis-ha
+spec:
+  serviceName: redis-ha-svc
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis-ha
+  template:
+    metadata:
+      labels:
+        app: redis-ha
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - "--protected-mode no"
+          ports:
+            - containerPort: 6379
+              name: redis
+        - name: sentinel
+          image: redis:7-alpine
+          command:
+            - redis-sentinel
+          ports:
+            - containerPort: 26379
+              name: sentinel
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-ha-svc
+  namespace: default
+spec:
+  ports:
+    - port: 6379
+      name: redis
+    - port: 26379
+      name: sentinel
+  selector:
+    app: redis-ha

@@ -29,13 +29,25 @@ def get_postgres_connection():
         import psycopg2
         from psycopg2 import pool
         if _pg_pool is None:
+            # Fetch credentials dynamically from HashiCorp Vault with env fallbacks
+            from security.vault import VaultSecretsClient
+            vault = VaultSecretsClient()
+            creds = vault.get_database_credentials()
+            
+            host = creds.get("host", POSTGRES_HOST)
+            port = int(creds.get("port", POSTGRES_PORT))
+            database = creds.get("database", POSTGRES_DB)
+            username = creds.get("username", POSTGRES_USER)
+            password = creds.get("password", POSTGRES_PASSWORD)
+            
+            logger.info(f"[Vault] Initializing database connection pool (target: {host}:{port}/{database})")
             _pg_pool = psycopg2.pool.SimpleConnectionPool(
                 1, 20,
-                host=POSTGRES_HOST,
-                port=POSTGRES_PORT,
-                database=POSTGRES_DB,
-                user=POSTGRES_USER,
-                password=POSTGRES_PASSWORD
+                host=host,
+                port=port,
+                database=database,
+                user=username,
+                password=password
             )
         return _pg_pool.getconn()
     except Exception as e:
@@ -347,18 +359,7 @@ def init_db():
                 last_checked DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """,
-            """
-            CREATE TABLE IF NOT EXISTS assets (
-                ip_address TEXT PRIMARY KEY,
-                hostname TEXT NOT NULL,
-                owner TEXT,
-                os TEXT,
-                criticality TEXT DEFAULT 'LOW',
-                internet_facing INTEGER DEFAULT 0,
-                contains_customer_data INTEGER DEFAULT 0,
-                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """,
+
             """
             CREATE TABLE IF NOT EXISTS vulnerabilities (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -583,6 +584,112 @@ def init_db():
                 geo_asn TEXT,
                 tenant_id TEXT DEFAULT 'default'
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS assets (
+                asset_id TEXT PRIMARY KEY,
+                hostname TEXT,
+                ip TEXT,
+                os TEXT,
+                criticality TEXT,
+                owner TEXT,
+                dept TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS simulations (
+                sim_id TEXT PRIMARY KEY,
+                name TEXT,
+                type TEXT,
+                start_time DATETIME,
+                end_time DATETIME,
+                status TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS evaluations (
+                eval_id TEXT PRIMARY KEY,
+                sim_id TEXT,
+                mttd REAL,
+                mttr REAL,
+                precision REAL,
+                recall REAL,
+                f1_score REAL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS incident_memory (
+                incident_id INTEGER PRIMARY KEY,
+                type TEXT,
+                severity TEXT,
+                resolved_action TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS ioc_memory (
+                ioc_value TEXT PRIMARY KEY,
+                ioc_type TEXT,
+                first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                count INTEGER DEFAULT 1,
+                risk_score REAL DEFAULT 0.0
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS user_memory (
+                user_id TEXT PRIMARY KEY,
+                usual_country TEXT,
+                usual_login_time TEXT,
+                risk_profile TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS asset_memory (
+                asset_id TEXT PRIMARY KEY,
+                criticality TEXT,
+                notes TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS dpo_preference_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_name TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                chosen_response TEXT NOT NULL,
+                rejected_response TEXT NOT NULL,
+                chosen_score REAL NOT NULL,
+                rejected_score REAL NOT NULL,
+                adversarial_difficulty TEXT DEFAULT 'LOW',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS analyst_overrides (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                incident_id INTEGER,
+                override_type TEXT NOT NULL,
+                override_reason TEXT,
+                original_confidence REAL,
+                corrected_confidence REAL,
+                time_to_override INTEGER,
+                processed INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS federated_syncs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                epoch INTEGER NOT NULL,
+                tenant_count INTEGER NOT NULL,
+                privacy_epsilon REAL NOT NULL,
+                laplace_noise_scale REAL NOT NULL,
+                gradient_norm REAL NOT NULL,
+                status TEXT DEFAULT 'COMPLETED',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
             """
         ]
 
@@ -692,3 +799,28 @@ def get_db():
         raise e
     finally:
         conn.close()
+
+def verify_api_key(conn, api_key: str) -> bool:
+    """Verifies an API key against active records (supports encrypted and legacy plain text keys)."""
+    from security.encryption import EncryptionManager
+    cipher = EncryptionManager()
+    cur = conn.execute("SELECT id, key_value, is_active FROM api_keys WHERE is_active = 1")
+    for row in cur.fetchall():
+        try:
+            decrypted = cipher.decrypt(row["key_value"])
+            if decrypted == api_key:
+                conn.execute(
+                    "UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?",
+                    (row["id"],)
+                )
+                return True
+        except Exception:
+            # Fallback for plain text key
+            if row["key_value"] == api_key:
+                conn.execute(
+                    "UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?",
+                    (row["id"],)
+                )
+                return True
+    return False
+

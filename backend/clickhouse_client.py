@@ -3,7 +3,10 @@ import os
 import socket
 import logging
 import uuid
-import clickhouse_connect
+try:
+    import clickhouse_connect
+except ImportError:
+    clickhouse_connect = None
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,8 @@ def check_clickhouse_status() -> bool:
 
 def get_clickhouse_client():
     global _ch_client
+    if clickhouse_connect is None:
+        return None
     if not check_clickhouse_status():
         return None
         

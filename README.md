@@ -1,64 +1,55 @@
-# AI SOC MVP
+# EDYSOR-X (V2 Evolution)
 
-An AI-powered Security Operations Center (SOC) MVP designed to ingest logs, detect sophisticated attacks using device fingerprinting and behavioral baselines, triage alerts using LLMs, and autonomously execute tiered responses (e.g., rate limiting, blocking, account locking) in real-time.
+An enterprise-grade, AI-powered Cyber Immune System. EDYSOR-X evolves beyond standard SOCs by ingesting telemetry, autonomously investigating threats via LLMs, and executing real-time, tiered defensive playbooks. The V2 Evolution transforms the platform into a self-healing, quantum-secure, and self-learning ecosystem.
 
-## Key Features
+## Key V2 Evolution Features
 
-- **Real-Time Log Ingestion & Rate Limiting**: Accepts telemetry (logins, OTP requests, page views) and enforces strict API rate limits via Redis to mitigate volumetric attacks.
-- **Robust Device Fingerprinting**: Generates unique fingerprints using User-Agent, Device ID, and HTTP Header ordering to track evasive attackers rotating IP addresses.
-- **Immediate Threat Detection & Blocking**: Identifies attack patterns like Credential Stuffing, Bot Scraping, OTP Pumping, and Account Takeovers. Immediately blocks active threats at the ingestion layer (`HTTP 403 Forbidden`).
-- **Incident Correlation & Investigation Engine**: Intelligently groups related alerts into unified Incidents to reduce alert fatigue. Uses Gemini 2.0 Flash to synthesize forensic investigations spanning threat intel, user history, asset criticality, and Mitre ATT&CK mapping.
-- **LLM-Powered Triage & Remediation (Background Tasks)**: Uses AI to generate human-readable alert summaries, technical/executive incident reports, remediation steps referencing playbooks (via Qdrant RAG), and custom deterrence emails directed at the attacker's ISP.
-- **Tiered Autonomous Response Engine**: Reacts to threats based on severity and confidence:
-  - Tier 1: Monitor
-  - Tier 2: Rate Limit
-  - Tier 3: CAPTCHA Challenge
-  - Tier 4: Temporary IP Block
-  - Tier 5: Permanent IP Block & Account Locking (requires Analyst approval)
-- **Plug-and-Play API Key Integration**: Easily secure your website's backend by validating incoming requests directly with the SOC's Redis-backed WAF rules.
-- **Human-in-the-Loop Approval Queue**: High-impact defensive actions are queued for manual review by a human analyst.
-- **WebSockets & Live Dashboard**: Streams live logs, alerts, and approval requests to a React-based frontend in real-time.
-- **Natural Language DB Querying**: Includes an AI chat interface that converts natural language questions into SQL to query the Postgres SOC database.
+### 🧠 Continuous Online Learning & AI Red Teaming
+- **Feedback Ingestion:** The AI engine adjusts trust weights on Sigma rules dynamically based on analyst feedback (Overrides vs. Approvals).
+- **Confidence Decay:** Applies exponential decay to stale rules that haven't fired in >30 days to prevent alert fatigue.
+- **Canary A/B Routing:** Deploys new experimental detection models in shadow mode to a configurable percentage of traffic (e.g., 10%) to benchmark against production models without risking infrastructure.
+- **Autonomous Red Agent:** An LLM-powered Red Team generates polymorphic, Base64-obfuscated attack payloads and injects them into the ingestion pipeline to continuously test the Blue Team.
+
+### 🛡️ Autonomous Response Engine & Deception
+- **Tier 0 Auto-Block:** Drops connections at the firewall for Critical threats with >95% AI confidence.
+- **Tier 1 Auto-Investigate:** Triggers forensic playbooks (memory snapshots) for threats between 80-95% confidence.
+- **Deception Network:** Integrates `cowrie` (SSH) and `dionaea` (multi-protocol) honeypots into the Docker cluster to capture and analyze raw malware payloads.
+- **Multi-Sig Kill Switch:** Open Policy Agent (OPA) strictly enforces that any manual destructive actions (e.g., network isolation) require at least *two* admin approvals.
+
+### 🌐 Threat Fusion & Data Lake
+- **Multi-Source Threat Fusion:** Replaces single-source intelligence with a weighted fusion engine pulling from VirusTotal, MISP, AlienVault OTX, and Abuse.ch.
+- **Sigma Auto-Generator:** Threat Intel IOCs are automatically parsed and dumped into deployable `YAML` Sigma rules.
+- **Cloud Data Lake:** Aggregates labeled incidents and synthetic attacks into JSONL and pushes them to Google Cloud Storage (GCS) for continuous offline model fine-tuning.
+
+### 🔐 Long-Term Enterprise Architecture (Hardware Plugins)
+- **Quantum-Resistant Cryptography:** Implements true C-bindings for Kyber512 (Key Encapsulation) and Dilithium2 (Digital Signatures) using the `liboqs-python` library to secure communications against future quantum threats.
+- **Enterprise Plugin Registry:** A "Bring-Your-Own-Hardware" architecture allowing enterprise buyers to securely drop in their API keys for:
+  - Confidential Compute (AMD SEV-SNP memory enclaves)
+  - Neuromorphic Compute (Intel Loihi / Lava SNN clusters)
+  - Swarm Robotics (ROS orchestration for physical server isolation)
+- **Edge IoT Agents:** Lightweight Python agents deployed via K3s that filter syslogs in <100ms locally, forwarding only critical anomalies to the central cluster.
 
 ## Architecture & Tech Stack
 
-This project is built using a modern microservice-oriented data infrastructure:
-
-- **Backend**: Python, FastAPI
-- **Frontend**: React, Vite, TailwindCSS
-- **Primary Database**: PostgreSQL (Stores alerts, investigations, assets, logs, threat intel)
-- **In-Memory Cache & Rate Limiting**: Redis (Fast rate limiting and WAF blocking)
-- **Message Broker**: Kafka + Zookeeper (Asynchronous high-volume log parsing)
-- **Vector Database**: Qdrant (RAG engine for retrieving remediation playbooks)
-- **Analytics & Big Data**: ClickHouse (High-throughput metric storage)
-- **Distributed Tracing**: Jaeger (OpenTelemetry tracing across the stack)
-- **AI Integration**: Gemini 2.0 Flash integration for triage, SQL generation, and investigations.
+- **Backend**: Python, FastAPI, Scikit-Learn
+- **Frontend**: React, Vite, TailwindCSS (Includes WebXR AR Threat Maps & Native Speech Recognition for Voice SOAR)
+- **Databases**: PostgreSQL (Relational), Neo4j (Attack Graphs), Qdrant (Vector/RAG), ClickHouse (Telemetry), Redis (Caching & WAF)
+- **Message Broker**: Kafka + Zookeeper
 
 ## Setup & Running
 
-This project uses Docker Compose to orchestrate all services.
-
 1. **Configure environment:**
-   Create a `.env` file in the root directory (or use environment variables) with:
+   Create a `.env` file in the root directory:
    ```env
    GEMINI_API_KEY=your_gemini_api_key_here
    ```
 
-2. **Run the entire stack with Docker Compose:**
+2. **Run the stack:**
    ```bash
    docker compose up --build -d
    ```
-   This command provisions Postgres, Redis, Kafka, Zookeeper, ClickHouse, Qdrant, Jaeger, the FastAPI backend (port 8000), and the React frontend (port 5173).
+   This provisions Postgres, Redis, Kafka, ClickHouse, Qdrant, Neo4j, Jaeger, the Honeypots, the FastAPI backend (port 8000), and the React frontend (port 5173).
 
 3. **Access the Dashboard:**
-   Open your browser and navigate to: `http://localhost:5173`
+   Navigate to: `http://localhost:5173`
 
-4. **Run the Attack Simulator:**
-   To test the SOC capabilities, you can run the attack simulator natively or inside the backend container:
-   ```bash
-   docker compose exec soc-backend python simulate_attacks.py --scenario all
-   ```
-   This sends bursts of mixed legitimate and malicious traffic (Credential Stuffing, Account Takeovers, Bots, etc.) to trigger alerts and LLM investigations.
-
-5. **Access Traces (Jaeger):**
-   Navigate to: `http://localhost:16686`

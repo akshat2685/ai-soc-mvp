@@ -1,0 +1,51 @@
+{{- if and .Values.postgresql.enabled .Values.postgresql.backup .Values.postgresql.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "edysor.fullname" . }}-postgres-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "edysor.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.postgresql.backup.schedule | default "0 2 * * *" | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: postgres:16-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Starting database backup..."
+              pg_dump \
+                -h {{ include "edysor.fullname" . }}-postgresql \
+                -U {{ .Values.postgresql.auth.username }} \
+                -d {{ .Values.postgresql.auth.database }} \
+                | gzip \
+                | aws s3 cp - s3://{{ .Values.postgresql.backup.s3Bucket }}/postgres/$(date +%Y%m%d_%H%M%S).sql.gz
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "edysor.fullname" . }}-postgresql
+                  key: postgres-password
+            {{- if .Values.postgresql.backup.s3CredentialsSecret }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.backup.s3CredentialsSecret }}
+                  key: aws-access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.backup.s3CredentialsSecret }}
+                  key: aws-secret-access-key
+            {{- end }}
+          restartPolicy: OnFailure
+{{- end }}

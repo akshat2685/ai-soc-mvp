@@ -1,0 +1,53 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "edysor.fullname" . }}-backend-policy
+  labels:
+    app: edysor-backend
+spec:
+  podSelector:
+    matchLabels:
+      app: edysor-backend
+  ingress:
+    # Allow traffic from Frontend on port 8000
+    - from:
+        - podSelector:
+            matchLabels:
+              app: edysor-frontend
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow traffic from Prometheus scraper
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8000
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "edysor.fullname" . }}-database-policy
+  labels:
+    app: edysor-database
+spec:
+  podSelector:
+    matchLabels:
+      # Targets postgresql primary/replica pods
+      app.kubernetes.io/name: postgresql
+  ingress:
+    # Allow connection only from backend
+    - from:
+        - podSelector:
+            matchLabels:
+              app: edysor-backend
+      ports:
+        - protocol: TCP
+          port: 5432
+  policyTypes:
+    - Ingress

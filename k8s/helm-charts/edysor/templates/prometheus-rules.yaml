@@ -1,0 +1,48 @@
+{{- if and .Values.monitoring .Values.monitoring.prometheusRules }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "edysor.fullname" . }}-rules
+  labels:
+    {{- include "edysor.labels" . | nindent 4 }}
+spec:
+  groups:
+  - name: edysor.rules
+    interval: 30s
+    rules:
+    - alert: HighAlertIngestionRate
+      expr: rate(alerts_ingested_total[5m]) > 1000
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High alert ingestion rate detected"
+        description: "Alert ingestion rate is above 1000/min for 5 minutes."
+    
+    - alert: PlaybookExecutionFailureRate
+      expr: rate(playbook_executions_failed_total[5m]) / rate(playbook_executions_total[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Playbook failure rate > 10%"
+        description: "More than 10% of automated playbooks failed to execute in the last 5 minutes."
+    
+    - alert: HighGeminiAPILatency
+      expr: histogram_quantile(0.95, gemini_api_duration_seconds) > 5
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Gemini API p95 latency > 5s"
+        description: "Gemini API latency is high (p95 > 5 seconds)."
+    
+    - alert: HighMemoryUsage
+      expr: container_memory_usage_bytes{container="backend"} / container_spec_memory_limit_bytes{container="backend"} > 0.9
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Backend memory usage > 90%"
+        description: "Backend container memory usage has exceeded 90% of limit for 5 minutes."
+{{- end }}

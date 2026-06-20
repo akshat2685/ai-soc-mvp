@@ -37,6 +37,7 @@ import re
 import asyncio
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+from health.health_checks import health_checker
 
 load_dotenv()
 
@@ -63,6 +64,9 @@ async def lifespan(app: FastAPI):
     
     # Start baseline background updates (operates on ClickHouse / DB)
     asyncio.create_task(_baseline_updater())
+    
+    # Mark health check startup complete
+    health_checker.mark_startup_complete()
     
     # We no longer need _block_expiry_checker or _rate_limiter_cleanup as Redis handles
     # block expiration TTL and sliding window rates natively without in-process CPU loops!
@@ -91,6 +95,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from digital_twin.api import router as digital_twin_router
+app.include_router(digital_twin_router)
+
+from api.collaboration import router as collaboration_router
+app.include_router(collaboration_router, prefix="/ws/incident")
+
+from xai.api import router as xai_router
+app.include_router(xai_router, prefix="/api/v1/xai", tags=["xai"])
+
+from integrations.siem_connectors import router as siem_router
+app.include_router(siem_router, prefix="/api/v1/ingest/siem", tags=["siem_ingest"])
+
+from purple_team.api import router as purple_team_router
+app.include_router(purple_team_router)
+
+from soar.api import router as soar_router
+app.include_router(soar_router)
+
+from training.api import router as training_router
+app.include_router(training_router)
+
+from copilot.api import router as copilot_router
+app.include_router(copilot_router)
+
+from learning.api import router as learning_router
+app.include_router(learning_router)
+
+from telemetry import HAS_PROMETHEUS
+if HAS_PROMETHEUS:
+    from prometheus_client import make_asgi_app
+    app.mount("/metrics", make_asgi_app())
 
 # ── Background Tasks ──
 
@@ -209,11 +244,16 @@ async def get_me(user: dict = Depends(require_auth)):
 @app.post("/auth/api-keys")
 async def create_api_key(req: APIKeyCreate, user: dict = Depends(require_auth)):
     import secrets
+    from security.encryption import EncryptionManager
+    cipher = EncryptionManager()
+    
     key_value = "shieldai_live_" + secrets.token_hex(24)
+    encrypted_key = cipher.encrypt(key_value)
+    
     with get_db() as conn:
         conn.execute(
             "INSERT INTO api_keys (key_value, name, user_id) VALUES (?, ?, ?)",
-            (key_value, req.name, user["username"])
+            (encrypted_key, req.name, user["username"])
         )
         conn.commit()
     return {"status": "ok", "key": key_value, "name": req.name}
@@ -221,6 +261,9 @@ async def create_api_key(req: APIKeyCreate, user: dict = Depends(require_auth)):
 
 @app.get("/auth/api-keys")
 async def get_api_keys(user: dict = Depends(require_auth)):
+    from security.encryption import EncryptionManager
+    cipher = EncryptionManager()
+    
     with get_db() as conn:
         cur = conn.execute(
             "SELECT id, name, key_value, created_at, last_used_at, is_active FROM api_keys ORDER BY created_at DESC"
@@ -228,7 +271,11 @@ async def get_api_keys(user: dict = Depends(require_auth)):
         keys = []
         for row in cur.fetchall():
             d = dict(row)
-            kv = d["key_value"]
+            kv_raw = d["key_value"]
+            try:
+                kv = cipher.decrypt(kv_raw)
+            except Exception:
+                kv = kv_raw  # Fallback for plain text key
             if len(kv) > 16:
                 d["key_value"] = kv[:12] + "..." + kv[-4:]
             keys.append(d)
@@ -291,11 +338,10 @@ async def ingest_log(request: Request, background_tasks: BackgroundTasks):
     if not api_key:
         raise HTTPException(status_code=401, detail="API Key is missing. Pass X-API-Key header.")
 
+    from database import verify_api_key
     with get_db() as conn:
-        cur = conn.execute("SELECT 1 FROM api_keys WHERE key_value = ? AND is_active = 1", (api_key,))
-        if not cur.fetchone():
+        if not verify_api_key(conn, api_key):
             raise HTTPException(status_code=401, detail="Invalid API Key")
-        conn.execute("UPDATE api_keys SET last_used_at = datetime('now') WHERE key_value = ?", (api_key,))
         conn.commit()
 
     device_fp = calculate_fingerprint(log.user_agent, log.device_id, log.headers)
@@ -965,6 +1011,24 @@ async def get_stats():
 #  HEALTH & METRICS
 # ══════════════════════════════════════════════════════════════
 
+@app.get("/health/live")
+async def health_live():
+    return health_checker.liveness()
+
+@app.get("/health/ready")
+async def health_ready():
+    res = health_checker.readiness()
+    if res["status"] == "not_ready":
+        raise HTTPException(status_code=503, detail=res)
+    return res
+
+@app.get("/health/startup")
+async def health_startup():
+    res = health_checker.startup()
+    if res["status"] == "initializing":
+        raise HTTPException(status_code=503, detail=res)
+    return res
+
 @app.get("/health")
 async def health_check():
     try:
@@ -1103,9 +1167,9 @@ async def devsecops_webhook(alert: DevSecOpsAlert, request: Request):
     if not api_key:
         raise HTTPException(status_code=401, detail="API Key is missing. Pass X-API-Key header.")
 
+    from database import verify_api_key
     with get_db() as conn:
-        cur = conn.execute("SELECT 1 FROM api_keys WHERE key_value = ? AND is_active = 1", (api_key,))
-        if not cur.fetchone():
+        if not verify_api_key(conn, api_key):
             raise HTTPException(status_code=401, detail="Invalid API Key")
             
         conn.execute(
@@ -1149,9 +1213,9 @@ async def ingest_ids_alert(alert: IDSAlertLog, request: Request):
     if not api_key:
         raise HTTPException(status_code=401, detail="API Key is missing")
 
+    from database import verify_api_key
     with get_db() as conn:
-        cur = conn.execute("SELECT 1 FROM api_keys WHERE key_value = ? AND is_active = 1", (api_key,))
-        if not cur.fetchone():
+        if not verify_api_key(conn, api_key):
             raise HTTPException(status_code=401, detail="Invalid API Key")
 
     # 2. Risk Correlation & Prioritization

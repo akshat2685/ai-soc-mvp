@@ -1,0 +1,132 @@
+# Default values for EDYSOR.
+# This is a YAML-formatted file.
+
+global:
+  environment: production
+  tenantId: default
+
+# ── Service mesh configuration ──
+istio:
+  enabled: true
+  injectSidecar: true
+
+# ── High Availability configurations ──
+replicaCount:
+  backend: 3
+  frontend: 2
+
+image:
+  backend:
+    repository: edysor-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: edysor-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+service:
+  backend:
+    type: ClusterIP
+    port: 8000
+  frontend:
+    type: ClusterIP
+    port: 3000
+
+# ── Autoscaling (HorizontalPodAutoscaler) ──
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 85
+
+# ── Resource Requests & Limits ──
+resources:
+  backend:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  frontend:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+# ── Ingress Configuration ──
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  hosts:
+    - host: soc.edysor.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: edysor-tls-cert
+      hosts:
+        - soc.edysor.local
+
+# ── Database & Cache Integrations ──
+# Local HA databases can be deployed as subcharts or reference external clusters
+postgresql:
+  enabled: true
+  architecture: replication
+  auth:
+    database: soc
+    username: soc
+    password: changeme
+  primary:
+    persistence:
+      size: 10Gi
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"
+    s3Bucket: "edysor-backups"
+    s3CredentialsSecret: "edysor-s3-backup-creds"
+
+redis:
+  enabled: true
+  architecture: replication
+  sentinel:
+    enabled: true
+  auth:
+    password: changeme
+
+externalDatabases:
+  clickhouse:
+    host: clickhouse-cluster.default.svc.cluster.local
+    port: 8123
+  qdrant:
+    host: qdrant-cluster.default.svc.cluster.local
+    port: 6333
+  neo4j:
+    host: neo4j-cluster.default.svc.cluster.local
+    port: 7687
+    user: neo4j
+    password: password
+
+# ── HashiCorp Vault Secrets Management ──
+vault:
+  enabled: false
+  address: "http://vault.prod.internal"
+  role: "edysor-role"
+  secretPath: "secret/data/edysor"
+
+# ── Monitoring & Alerting (Prometheus / Grafana) ──
+monitoring:
+  prometheusRules: true
+

@@ -1,0 +1,55 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: edysor-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway # Use Istio default ingress gateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "soc.edysor.local"
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: edysor-tls-cert
+      hosts:
+        - "soc.edysor.local"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: edysor-virtualservice
+  namespace: default
+spec:
+  hosts:
+    - "soc.edysor.local"
+  gateways:
+    - edysor-gateway
+  http:
+    # Route API and WebSocket requests to backend
+    - match:
+        - uri:
+            prefix: /api
+        - uri:
+            prefix: /ws
+        - uri:
+            prefix: /metrics
+      route:
+        - destination:
+            host: edysor-backend.default.svc.cluster.local
+            port:
+              number: 8000
+    # Route all other requests to frontend
+    - route:
+        - destination:
+            host: edysor-frontend.default.svc.cluster.local
+            port:
+              number: 3000

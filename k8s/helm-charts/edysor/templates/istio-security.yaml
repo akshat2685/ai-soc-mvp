@@ -1,0 +1,45 @@
+{{- if .Values.istio.enabled }}
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: {{ include "edysor.fullname" . }}-mtls
+  namespace: {{ .Release.Namespace }}
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "edysor.fullname" . }}-authz
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: edysor-backend
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/{{ .Release.Namespace }}/sa/{{ include "edysor.fullname" . }}-frontend"]
+    to:
+    - operation:
+        methods: ["GET", "POST", "DELETE", "PUT"]
+{{- end }}
+
+---
+{{- if and .Values.ingress.enabled (index .Values.ingress.annotations "cert-manager.io/cluster-issuer") }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "edysor.fullname" . }}-ingress-cert
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: {{ (first .Values.ingress.tls).secretName | default "edysor-tls-secret" }}
+  issuerRef:
+    name: {{ index .Values.ingress.annotations "cert-manager.io/cluster-issuer" }}
+    kind: ClusterIssuer
+  dnsNames:
+    {{- range (first .Values.ingress.tls).hosts }}
+    - {{ . | quote }}
+    {{- end }}
+{{- end }}

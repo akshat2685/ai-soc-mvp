@@ -1,0 +1,1 @@
+# EDYSOR AI Safety Module

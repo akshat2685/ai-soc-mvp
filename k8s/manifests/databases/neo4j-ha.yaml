@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j-ha
+  namespace: default
+  labels:
+    app: neo4j-ha
+spec:
+  serviceName: neo4j-ha-svc
+  replicas: 3
+  selector:
+    matchLabels:
+      app: neo4j-ha
+  template:
+    metadata:
+      labels:
+        app: neo4j-ha
+    spec:
+      containers:
+        - name: neo4j
+          image: neo4j:enterprise-alpine # Causal clustering is an enterprise feature
+          env:
+            - name: NEO4J_ACCEPT_LICENSE_AGREEMENT
+              value: "yes"
+            - name: NEO4J_AUTH
+              value: "neo4j/password"
+            - name: NEO4J_dbms_mode
+              value: "CORE"
+          ports:
+            - containerPort: 7474
+              name: http
+            - containerPort: 7687
+              name: bolt
+          volumeMounts:
+            - name: neo4j-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: neo4j-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-ha-svc
+  namespace: default
+spec:
+  ports:
+    - port: 7474
+      name: http
+    - port: 7687
+      name: bolt
+  selector:
+    app: neo4j-ha

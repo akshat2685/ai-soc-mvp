@@ -130,18 +130,38 @@ def _handle_general_query(query: str) -> dict:
     # Build context for the LLM
     alerts_summary = json.dumps(all_alerts[:30], indent=2, default=str)
 
-    # RAG Knowledge Context
+    # RAG Knowledge Context with Redis Caching (1h TTL)
     knowledge_context = ""
     try:
-        from rag_engine import search_knowledge
-        docs = search_knowledge(query, top_k=2)
-        if docs:
-            doc_texts = []
-            for d in docs:
-                source = d.metadata.get("source", "Unknown")
-                title = d.metadata.get("title", "Untitled")
-                doc_texts.append(f"Source: {source} | Title: {title}\nContent: {d.page_content}")
-            knowledge_context = "\n\nKNOWLEDGE BASE CONTEXT:\n" + "\n---\n".join(doc_texts)
+        import redis
+        import hashlib
+        redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+        query_hash = hashlib.md5(query.encode()).hexdigest()
+        cache_key = f"rag_cache:{query_hash}"
+        
+        cached_docs = None
+        try:
+            cached_docs = redis_client.get(cache_key)
+        except Exception:
+            pass # Redis might be down
+            
+        if cached_docs:
+            knowledge_context = cached_docs
+        else:
+            from rag_engine import search_knowledge
+            docs = search_knowledge(query, top_k=2)
+            if docs:
+                doc_texts = []
+                for d in docs:
+                    source = d.metadata.get("source", "Unknown")
+                    title = d.metadata.get("title", "Untitled")
+                    doc_texts.append(f"Source: {source} | Title: {title}\nContent: {d.page_content}")
+                knowledge_context = "\n\nKNOWLEDGE BASE CONTEXT:\n" + "\n---\n".join(doc_texts)
+                
+                try:
+                    redis_client.setex(cache_key, 3600, knowledge_context) # 1h TTL
+                except Exception:
+                    pass
     except Exception as e:
         pass  # Ignore RAG errors if Qdrant isn't up
 

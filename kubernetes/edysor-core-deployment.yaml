@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edysor-core
+  namespace: edysor-soc
+  labels:
+    app: edysor-core
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: edysor-core
+  template:
+    metadata:
+      labels:
+        app: edysor-core
+      annotations:
+        # Require nodes with Confidential Computing (e.g., AMD SEV)
+        edysor.io/security-profile: "confidential-enclave"
+    spec:
+      nodeSelector:
+        hardware.profile: amd-sev-snp
+      containers:
+      - name: edysor-api
+        image: edysor-core:v1.5.0
+        ports:
+        - containerPort: 8000
+        env:
+        - name: ENV
+          value: "production"
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"

@@ -1,0 +1,1 @@
+# EDYSOR Cache Module

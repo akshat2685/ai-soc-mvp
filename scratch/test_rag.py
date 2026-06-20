@@ -7,6 +7,28 @@ from fastapi.testclient import TestClient
 # Add backend to path
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "backend"))
 
+import shutil
+qdrant_local_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend", "qdrant_local"))
+if os.path.exists(qdrant_local_path):
+    try:
+        shutil.rmtree(qdrant_local_path)
+        print(f"[TEST] Cleaned up local Qdrant directory at {qdrant_local_path}")
+    except Exception as e:
+        print(f"[TEST] Failed to delete local Qdrant directory: {e}")
+
+from unittest.mock import patch
+from langchain_core.embeddings import Embeddings
+
+class MockEmbeddings(Embeddings):
+    def embed_documents(self, texts):
+        return [[0.1] * 768 for _ in texts]
+    def embed_query(self, text):
+        return [0.1] * 768
+
+mock_embed = MockEmbeddings()
+patcher = patch('langchain_google_genai.GoogleGenerativeAIEmbeddings', return_value=mock_embed)
+patcher.start()
+
 from main import app
 from database import init_db, get_db
 from investigation_engine import run_investigation
@@ -35,6 +57,17 @@ def generate_pdf():
 
 def test_rag_flow():
     init_db()
+    # 0. Clean up existing Qdrant collection to avoid dimension mismatch
+    try:
+        from rag_engine import get_qdrant_client, COLLECTION_NAME
+        qc = get_qdrant_client()
+        if qc.collection_exists(COLLECTION_NAME):
+            qc.delete_collection(COLLECTION_NAME)
+            print(f"[TEST] Deleted existing collection {COLLECTION_NAME} to reset dimensions.")
+        qc.close()
+    except Exception as e:
+        print(f"[TEST] Failed to delete existing collection: {e}")
+
     client = TestClient(app)
     # 1. Login using default admin to get a JWT token
     print("[TEST] Logging in as admin...")

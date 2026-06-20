@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "edysor.fullname" . }}-backend
+  labels:
+    app: edysor-backend
+spec:
+  replicas: {{ .Values.replicaCount.backend }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: edysor-backend
+  template:
+    metadata:
+      labels:
+        app: edysor-backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+        {{- if .Values.istio.enabled }}
+        sidecar.istio.io/inject: "true"
+        {{- end }}
+        {{- if .Values.vault.enabled }}
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "{{ .Values.vault.role }}"
+        vault.hashicorp.com/agent-inject-secret-config: "{{ .Values.vault.secretPath }}/database"
+        vault.hashicorp.com/agent-inject-template-config: |
+          {{`{{- with secret "`}}{{ .Values.vault.secretPath }}{{`/database" -}}
+          export POSTGRES_USER="{{ .Data.data.username }}"
+          export POSTGRES_PASSWORD="{{ .Data.data.password }}"
+          export POSTGRES_HOST="{{ .Data.data.host }}"
+          export POSTGRES_PORT="{{ .Data.data.port }}"
+          export POSTGRES_DB="{{ .Data.data.database }}"
+          {{- end }}`}}
+        {{- end }}
+    spec:
+      containers:
+        - name: backend
+          image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: DB_TYPE
+              value: "postgres"
+            - name: POSTGRES_HOST
+              value: {{ if .Values.postgresql.enabled }}"{{ include "edysor.fullname" . }}-postgresql"{{ else }}"localhost"{{ end }}
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: "{{ .Values.postgresql.auth.database }}"
+            - name: POSTGRES_USER
+              value: "{{ .Values.postgresql.auth.username }}"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.postgresql.enabled }}"{{ include "edysor.fullname" . }}-postgresql"{{ else }}"edysor-db-secrets"{{ end }}
+                  key: postgres-password
+            - name: REDIS_HOST
+              value: {{ if .Values.redis.enabled }}"{{ include "edysor.fullname" . }}-redis-master"{{ else }}"localhost"{{ end }}
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.redis.enabled }}"{{ include "edysor.fullname" . }}-redis"{{ else }}"edysor-redis-secrets"{{ end }}
+                  key: redis-password
+            - name: CLICKHOUSE_HOST
+              value: "{{ .Values.externalDatabases.clickhouse.host }}"
+            - name: CLICKHOUSE_PORT
+              value: "{{ .Values.externalDatabases.clickhouse.port }}"
+            - name: QDRANT_HOST
+              value: "{{ .Values.externalDatabases.qdrant.host }}"
+            - name: QDRANT_PORT
+              value: "{{ .Values.externalDatabases.qdrant.port }}"
+            - name: NEO4J_HOST
+              value: "{{ .Values.externalDatabases.neo4j.host }}"
+            - name: NEO4J_PORT
+              value: "{{ .Values.externalDatabases.neo4j.port }}"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: edysor-jwt-secrets
+                  key: jwt-secret
+          resources:
+            {{- toYaml .Values.resources.backend | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /health/startup
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 10

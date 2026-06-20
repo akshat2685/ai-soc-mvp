@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant-ha
+  namespace: default
+  labels:
+    app: qdrant-ha
+spec:
+  serviceName: qdrant-ha-svc
+  replicas: 3
+  selector:
+    matchLabels:
+      app: qdrant-ha
+  template:
+    metadata:
+      labels:
+        app: qdrant-ha
+    spec:
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:latest
+          ports:
+            - containerPort: 6333
+              name: http
+            - containerPort: 6334
+              name: grpc
+          env:
+            - name: QDRANT__CLUSTER__ENABLED
+              value: "true"
+          volumeMounts:
+            - name: qdrant-storage
+              mountPath: /qdrant/storage
+  volumeClaimTemplates:
+    - metadata:
+        name: qdrant-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant-ha-svc
+  namespace: default
+spec:
+  ports:
+    - port: 6333
+      name: http
+    - port: 6334
+      name: grpc
+  selector:
+    app: qdrant-ha
