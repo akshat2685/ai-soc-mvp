@@ -136,17 +136,19 @@ async def correlation_id_middleware(request: Request, call_next):
     )
     return response
 
+from config import settings
 from rate_limiting import RateLimitMiddleware
 from redis import Redis
-# Synchronous redis client for RateLimitMiddleware
-sync_redis = Redis.from_url("redis://localhost:6379", decode_responses=True)
-app.add_middleware(
-    RateLimitMiddleware,
-    redis=sync_redis,
-    capacity=100,
-    refill_rate=10.0,
-    exempt_paths=["/health", "/readiness", "/docs", "/openapi.json"]
-)
+
+sync_redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+if settings.RATE_LIMIT_ENABLED:
+    app.add_middleware(
+        RateLimitMiddleware,
+        redis=sync_redis,
+        capacity=settings.RATE_LIMIT_CAPACITY,
+        refill_rate=settings.RATE_LIMIT_REFILL_RATE,
+        exempt_paths=["/health", "/readiness", "/docs", "/openapi.json"]
+    )
 
 from routes import router as secure_logs_router
 app.include_router(secure_logs_router)

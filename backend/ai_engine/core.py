@@ -1,19 +1,14 @@
-import os
-from dotenv import load_dotenv
-load_dotenv()
+from config import settings
 
-# Try to import google.generativeai for real LLM; if unavailable, use fallback
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 _gemini_model = None
-
 
 def _get_gemini_model():
     global _gemini_model
-    if _gemini_model is None and GEMINI_API_KEY:
+    if _gemini_model is None and settings.GEMINI_API_KEY:
         try:
             import google.generativeai as genai
-            genai.configure(api_key=GEMINI_API_KEY)
-            _gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            _gemini_model = genai.GenerativeModel(settings.GEMINI_MODEL)
         except Exception as e:
             from logging_config import get_logger
             get_logger(__name__).error(f"[AI ENGINE] Failed to initialize Gemini: {e}")

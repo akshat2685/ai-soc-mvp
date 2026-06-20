@@ -49,9 +49,17 @@ async def save_config(integration_name: str, req: ConfigSaveRequest, user: dict 
     save_integration_config(tenant_id, integration_name, req.config_data)
     return {"status": "success", "message": f"Configuration for {integration_name} saved."}
 
+from auth.rbac import require_permission, Permission
+
 @router.post("/trigger", response_model=Dict[str, Any])
-async def trigger_playbook_endpoint(req: PlaybookTriggerRequest, user: dict = Depends(require_auth)):
-    """Manually trigger a SOAR playbook."""
+async def trigger_playbook_endpoint(
+    req: PlaybookTriggerRequest, 
+    user: dict = Depends(require_auth)
+):
+    """Manually trigger a SOAR playbook. Requires EXECUTE_PLAYBOOK permission."""
+    # Enforce RBAC
+    require_permission(Permission.EXECUTE_PLAYBOOK)(user)
+    
     tenant_id = user.get("tenant_id", "default")
     try:
         run_id = trigger_playbook(tenant_id, req.playbook_name, req.target, req.incident_id)
@@ -80,6 +88,7 @@ async def list_pending_approvals(user: dict = Depends(require_auth)):
 @router.post("/approvals/{approval_id}/resolve")
 async def resolve_approval_endpoint(approval_id: int, req: ApprovalResolveRequest, user: dict = Depends(require_auth)):
     """Approve or Deny a pending SOAR action."""
+    require_permission(Permission.APPROVE_CRITICAL_ACTION)(user)
     tenant_id = user.get("tenant_id", "default")
     # Verify that the approval belongs to this tenant
     with get_db() as conn:

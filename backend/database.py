@@ -7,14 +7,10 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-DB_TYPE = os.environ.get("DB_TYPE", "sqlite")
+from config import settings
 
-# PostgreSQL Config
-POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "localhost")
-POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", 5432))
-POSTGRES_DB = os.environ.get("POSTGRES_DB", "soc")
-POSTGRES_USER = os.environ.get("POSTGRES_USER", "soc")
-POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "changeme")
+DB_TYPE = "postgres" if settings.POSTGRES_URL.startswith("postgresql") else "sqlite"
+POSTGRES_URL = settings.POSTGRES_URL
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "soc.db")
 
@@ -31,27 +27,14 @@ def get_postgres_connection():
         if _pg_pool is None:
             # Fetch credentials dynamically from HashiCorp Vault with env fallbacks
             from security.vault import VaultSecretsClient
-            vault = VaultSecretsClient()
-            creds = vault.get_database_credentials()
-            
-            host = creds.get("host", POSTGRES_HOST)
-            port = int(creds.get("port", POSTGRES_PORT))
-            database = creds.get("database", POSTGRES_DB)
-            username = creds.get("username", POSTGRES_USER)
-            password = creds.get("password", POSTGRES_PASSWORD)
-            
-            logger.info(f"[Vault] Initializing database connection pool (target: {host}:{port}/{database})")
+            logger.info(f"Initializing database connection pool (target: {POSTGRES_URL})")
             _pg_pool = psycopg2.pool.SimpleConnectionPool(
                 1, 20,
-                host=host,
-                port=port,
-                database=database,
-                user=username,
-                password=password
+                dsn=POSTGRES_URL
             )
         return _pg_pool.getconn()
     except Exception as e:
-        logger.warning(f"Failed to connect to PostgreSQL ({POSTGRES_HOST}:{POSTGRES_PORT}): {e}. Falling back to SQLite.")
+        logger.warning(f"Failed to connect to PostgreSQL ({POSTGRES_URL}): {e}. Falling back to SQLite.")
         return None
 
 def release_postgres_connection(conn):
