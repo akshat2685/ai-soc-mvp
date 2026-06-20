@@ -10,56 +10,84 @@ class AlertInput(BaseModel):
     evidence: dict
     confidence_score: float = Field(default=80.0, ge=0.0, le=100.0)
 
-class TelemetryLog(BaseModel):
-    """Validated telemetry log for ingestion."""
-    timestamp: Optional[datetime] = None
-    event_type: str = Field(..., max_length=50)
-    source_ip: str = Field(..., max_length=45)
-    user_id: Optional[str] = Field(None, max_length=100)
-    status: str = Field(..., max_length=20)
-    device_id: Optional[str] = Field(None, max_length=200)
-    user_agent: Optional[str] = Field(None, max_length=500)
-    endpoint: Optional[str] = Field(None, max_length=500)
-    method: Optional[str] = Field(None, max_length=10)
-    headers: Optional[dict] = None
+from typing import Dict, Any
+import ipaddress
 
-    @field_validator('event_type')
+class LogEntry(BaseModel):
+    """Validated log entry with security-first design"""
+    
+    timestamp: datetime = Field(..., description="ISO 8601 timestamp of event")
+    user_id: str = Field(..., min_length=1, max_length=128, description="Unique user identifier")
+    event_type: str = Field(..., regex="^[A-Z_]{3,32}$", description="Event category (e.g., LOGIN_SUCCESS)")
+    source_ip: str = Field(..., description="Source IP address")
+    target_ip: Optional[str] = Field(None, description="Target/destination IP")
+    raw_data: str = Field(..., max_length=50000, description="Full log payload")
+    severity: str = Field(default="INFO", regex="^(DEBUG|INFO|WARN|ERROR|CRITICAL)$")
+    device_id: Optional[str] = Field(None, max_length=256, description="Device fingerprint identifier")
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, max_items=20, description="Additional context")
+    
+    @field_validator('user_id')
     @classmethod
-    def validate_event_type(cls, v):
-        allowed = {'login', 'otp_request', 'page_view', 'api_call',
-                    'coupon_apply', 'order', 'logout', 'password_reset',
-                    'signup', 'profile_update'}
-        if v not in allowed:
-            raise ValueError(f"event_type must be one of: {allowed}")
+    def sanitize_user_id(cls, v):
+        v = v.replace('\x00', '').replace('\n', '').replace('\t', '')
+        return v.strip()[:128]
+    
+    @field_validator('raw_data')
+    @classmethod
+    def sanitize_raw_data(cls, v):
+        dangerous_patterns = [
+            r'<\|im_(start|end)\|>',
+            r'(?i)^system\s*:',
+            r'(?i)^assistant\s*:',
+            r'(?i)^user\s*:',
+            r'"""',
+            r"'''",
+        ]
+        for pattern in dangerous_patterns:
+            v = re.sub(pattern, '[REDACTED]', v, flags=re.MULTILINE)
         return v
-
+    
     @field_validator('source_ip')
     @classmethod
-    def validate_ip(cls, v):
-        # Basic IP validation (IPv4 + IPv6)
-        ipv4_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
-        ipv6_pattern = r'^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$'
-        if not (re.match(ipv4_pattern, v) or re.match(ipv6_pattern, v)):
-            raise ValueError("Invalid IP address format")
+    def validate_source_ip(cls, v):
+        try:
+            ipaddress.ip_address(v)
+        except ValueError:
+            raise ValueError(f"Invalid IP address: {v}")
         return v
-
-    @field_validator('status')
+    
+    @field_validator('target_ip')
     @classmethod
-    def validate_status(cls, v):
-        allowed = {'success', 'failed', 'error', 'blocked', 'pending'}
-        if v not in allowed:
-            raise ValueError(f"status must be one of: {allowed}")
-        return v
-
-    @field_validator('method')
-    @classmethod
-    def validate_method(cls, v):
+    def validate_target_ip(cls, v):
         if v is None:
             return v
-        allowed = {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'}
-        if v.upper() not in allowed:
-            raise ValueError(f"method must be one of: {allowed}")
-        return v.upper()
+        try:
+            ipaddress.ip_address(v)
+        except ValueError:
+            raise ValueError(f"Invalid IP address: {v}")
+        return v
+    
+    @field_validator('metadata')
+    @classmethod
+    def validate_metadata(cls, v):
+        if not v:
+            return {}
+        for key, value in v.items():
+            if isinstance(value, str) and len(value) > 5000:
+                raise ValueError(f"Metadata field '{key}' exceeds 5000 chars")
+        return v
+
+class BatchLogIngestion(BaseModel):
+    """Batch multiple logs in single request"""
+    logs: list[LogEntry] = Field(..., max_items=1000)
+    
+    @field_validator('logs')
+    @classmethod
+    def validate_batch_size(cls, v):
+        if len(v) > 1000:
+            raise ValueError("Max 1000 logs per batch")
+        return v
+
 
 
 class ChatRequest(BaseModel):

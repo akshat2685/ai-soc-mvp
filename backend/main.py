@@ -105,6 +105,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from logging_config import set_correlation_id, get_logger
+app_logger = get_logger(__name__)
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Add correlation ID to all requests"""
+    correlation_id = await set_correlation_id(request)
+    
+    app_logger.info(
+        "Request received",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "source_ip": request.client.host if request.client else "unknown",
+            "correlation_id": correlation_id
+        }
+    )
+    
+    response = await call_next(request)
+    
+    app_logger.info(
+        "Request completed",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "correlation_id": correlation_id
+        }
+    )
+    return response
+
+from rate_limiting import RateLimitMiddleware
+from redis import Redis
+# Synchronous redis client for RateLimitMiddleware
+sync_redis = Redis.from_url("redis://localhost:6379", decode_responses=True)
+app.add_middleware(
+    RateLimitMiddleware,
+    redis=sync_redis,
+    capacity=100,
+    refill_rate=10.0,
+    exempt_paths=["/health", "/readiness", "/docs", "/openapi.json"]
+)
+
+from routes import router as secure_logs_router
+app.include_router(secure_logs_router)
+
 from digital_twin.api import router as digital_twin_router
 app.include_router(digital_twin_router)
 
