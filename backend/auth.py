@@ -12,13 +12,13 @@ import time
 from datetime import datetime, timedelta
 from database import get_db
 
-# Industry standard JWT and Password Hashing (Phase 1 Hardening)
+from config import settings
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 
-SECRET_KEY = os.environ.get("JWT_SECRET", "shieldai-soc-secret-change-me")
+SECRET_KEY = settings.JWT_SECRET
 ALGORITHM = "HS256"
-TOKEN_EXPIRY_HOURS = 24
+TOKEN_EXPIRY_HOURS = settings.JWT_EXPIRE_MINUTES / 60
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

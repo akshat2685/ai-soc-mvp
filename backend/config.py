@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # Security & JWT
     JWT_SECRET: str = "change_me_in_production"
     JWT_EXPIRE_MINUTES: int = 480 # 8 hours
+    ALLOWED_ORIGINS: list[str] = ["http://localhost", "http://localhost:80", "http://localhost:3000"]
     
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True

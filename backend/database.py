@@ -28,14 +28,14 @@ def get_postgres_connection():
             # Fetch credentials dynamically from HashiCorp Vault with env fallbacks
             from security.vault import VaultSecretsClient
             logger.info(f"Initializing database connection pool (target: {POSTGRES_URL})")
-            _pg_pool = psycopg2.pool.SimpleConnectionPool(
+            _pg_pool = psycopg2.pool.ThreadedConnectionPool(
                 1, 20,
                 dsn=POSTGRES_URL
             )
         return _pg_pool.getconn()
     except Exception as e:
-        logger.warning(f"Failed to connect to PostgreSQL ({POSTGRES_URL}): {e}. Falling back to SQLite.")
-        return None
+        logger.error(f"Failed to connect to PostgreSQL ({POSTGRES_URL}): {e}", exc_info=True)
+        raise e
 
 def release_postgres_connection(conn):
     global _pg_pool

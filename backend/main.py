@@ -98,20 +98,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI SOC Platform API", lifespan=lifespan)
 
-import os
-
-# Parse ALLOWED_ORIGINS from env, defaulting to local access if not set
-allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "*")
-if allowed_origins_env == "*":
-    origins = ["*"]
-else:
-    origins = [o.strip() for o in allowed_origins_env.split(",")]
+from config import settings
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -161,7 +154,10 @@ if settings.RATE_LIMIT_ENABLED:
     )
 
 from routes import router as secure_logs_router
+from auth.jwt_handler import router as auth_router
+
 app.include_router(secure_logs_router)
+app.include_router(auth_router)
 
 from digital_twin.api import router as digital_twin_router
 app.include_router(digital_twin_router)
