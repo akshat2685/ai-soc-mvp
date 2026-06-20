@@ -22,7 +22,7 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_DB=soc
       - POSTGRES_USER=soc
-      - POSTGRES_PASSWORD=changeme
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme_in_production}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
@@ -52,7 +52,7 @@ services:
     environment:
       POSTGRES_DB: soc
       POSTGRES_USER: soc
-      POSTGRES_PASSWORD: changeme
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_in_production}
     ports:
       - "5432:5432"
     volumes:
@@ -123,7 +123,7 @@ services:
       - "7474:7474" # HTTP
       - "7687:7687" # Bolt
     environment:
-      - NEO4J_AUTH=neo4j/password
+      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/password_in_production}
     restart: unless-stopped
 
   caldera:
@@ -151,7 +151,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD:-admin_in_production}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
     depends_on:
       - prometheus
     restart: unless-stopped
