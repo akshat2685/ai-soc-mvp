@@ -9,7 +9,9 @@ SECURITY_FEEDS = [
     {"name": "Microsoft Security Blog", "url": "https://www.microsoft.com/security/blog/feed/"},
     {"name": "Palo Alto Unit 42", "url": "https://unit42.paloaltonetworks.com/feed/"},
     {"name": "Mandiant Blog", "url": "https://www.mandiant.com/resources/blog/rss.xml"},
-    {"name": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/"}
+    {"name": "Cisco Talos", "url": "https://blog.talosintelligence.com/rss/"},
+    {"name": "NVD Latest Vulnerabilities (CVE)", "url": "https://nvd.nist.gov/feeds/xml/cve/misc/nvd-rss-analyzed.xml"},
+    {"name": "MITRE ATT&CK Updates", "url": "https://attack.mitre.org/docs/updates/updates.xml"}
 ]
 
 def scrape_feed(feed_info, max_articles=5):
