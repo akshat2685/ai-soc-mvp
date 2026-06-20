@@ -14,8 +14,18 @@ The platform follows a modern, highly-scalable 12-factor architecture:
 *   **Data Lakehouse (ClickHouse):** Telemetry is routed directly to a massive, columnar ClickHouse `MergeTree` for lightning-fast dashboard aggregations and time-series analysis.
 *   **State & Configuration (PostgreSQL + Alembic):** All relational state (Users, RBAC, Alert Status, Playbooks) is stored securely in PostgreSQL with Alembic handling schema migrations.
 *   **AI Detection Engine:** A pool of Kafka Consumers pull telemetry off the wire, run it through `scikit-learn` DBSCAN clustering, and query the Gemini Multi-Agent Swarm for a triage verdict.
+*   **Continuous Autonomous Learning:** A daily background loop trains an Unsupervised `IsolationForest` on your most recent traffic to catch zero-days dynamically, while adjusting rule confidence based on false-positive decay.
+*   **Digital Twin Simulation:** A Neo4j graph engine calculates Blast Radius for every incident, running theoretical "What-If" containment simulations before acting.
+*   **Automated LLM Fine-Tuning:** Includes a built-in CLI (`gemini_tuner.py`) to extract ground truth and autonomously fine-tune your Gemini model via the Google AI Studio API.
 *   **Vector Memory (Qdrant):** The AI Swarm utilizes Qdrant to recall past incidents and analyst feedback, allowing the system to continuously learn from your environment.
 *   **Frontend:** A React + Vite SPA served via NGINX.
+
+## 🔐 Security Posture (Score: 5/5)
+EDYSOR is built with zero-trust principles:
+*   **Active Defense WAF:** Tiered Response Engine autonomously rate-limits and IP-blocks attackers via Redis.
+*   **Hardened DB Routing:** Strict separation of OLTP/OLAP queries using 100% Parameterized queries to eliminate SQL Injection.
+*   **RBAC & JWT:** Full JSON Web Token authentication with bcrypt password hashing and tiered analyst roles.
+*   **Secrets Management:** No hardcoded credentials. All containers rely on secure environment variables.
 
 ## 🚀 Quickstart (Docker Compose)
 
