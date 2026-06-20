@@ -1,6 +1,16 @@
 version: '3.8'
 
 services:
+  soc-frontend:
+    build:
+      context: ./frontend
+    container_name: shieldai-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - soc-backend
+    restart: unless-stopped
+
   soc-backend:
     build: .
     container_name: shieldai-soc

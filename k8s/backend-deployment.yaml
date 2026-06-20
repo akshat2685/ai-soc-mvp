@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soc-backend
+  labels:
+    app: soc-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: soc-backend
+  template:
+    metadata:
+      labels:
+        app: soc-backend
+    spec:
+      containers:
+      - name: soc-backend
+        image: your-registry/soc-backend:latest
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - secretRef:
+            name: soc-secrets
+        - configMapRef:
+            name: soc-config
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
