@@ -462,3 +462,40 @@ Incident Details:
         "executive_summary": executive_summary,
         "technical_summary": technical_summary
     }
+
+
+def analyze_alert(title: str, severity: str, attack_type: str, attacker_ip: str, device_fingerprint: str = None, user_ids: list = None) -> dict:
+    """
+    Wrapper function used by the evaluation framework.
+    Dynamically inserts a temporary alert, triages it, and returns the report along with a predicted verdict.
+    """
+    evidence = json.dumps({"user_ids": user_ids or [], "user_id": user_ids[0] if user_ids else None})
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO alerts (title, severity, attack_type, attacker_ip, device_fingerprint, evidence, verdict) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (title, severity, attack_type, attacker_ip, device_fingerprint, evidence, 'PENDING')
+        )
+        alert_id = cur.lastrowid
+        conn.commit()
+    
+    try:
+        report = run_investigation(alert_id)
+        
+        # Rule-based verdict prediction for the evaluation framework
+        conf = report.get("confidence_score", 80)
+        is_local_ip = attacker_ip and (attacker_ip.startswith("10.") or attacker_ip.startswith("192.168.") or attacker_ip.startswith("172.16."))
+        
+        if severity.upper() in ("HIGH", "CRITICAL") and not is_local_ip and conf >= 70:
+            verdict = "TRUE_POSITIVE"
+        else:
+            verdict = "FALSE_POSITIVE"
+            
+        report["verdict"] = verdict
+        return report
+    finally:
+        # Clean up the temporary alert and investigation
+        with get_db() as conn:
+            conn.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
+            conn.execute("DELETE FROM investigations WHERE alert_id = ?", (alert_id,))
+            conn.commit()

@@ -2,7 +2,7 @@ import os
 import time
 import argparse
 import logging
-from dataset_builder import DatasetBuilder
+from .dataset_builder import DatasetBuilder
 
 logger = logging.getLogger(__name__)
 

@@ -1,4 +1,4 @@
-from langchain.prompts import FewShotPromptTemplate, PromptTemplate
+from langchain_core.prompts import FewShotPromptTemplate, PromptTemplate
 
 def build_few_shot_triage_prompt(alert_title: str, evidence_str: str, past_verdicts: list[dict]) -> str:
     """

@@ -1,17 +1,21 @@
 'use client';
 
 import React from 'react';
+import dynamic from 'next/dynamic';
 import { useStore } from '@/store/useStore';
 import DashboardShell from '@/components/DashboardShell';
 import DashboardView from '@/components/DashboardView';
 import IncidentsView from '@/components/IncidentsView';
-import AttackGraphView from '@/components/AttackGraphView';
 import MemoryExplorerView from '@/components/MemoryExplorerView';
 import ExecutiveDashboardView from '@/components/ExecutiveDashboardView';
 import ReportingView from '@/components/ReportingView';
 import SettingsView from '@/components/SettingsView';
 import FederationDashboard from '@/components/FederationDashboard';
 import ChaosDashboard from '@/components/ChaosDashboard';
+
+const AttackGraphView = dynamic(() => import('@/components/AttackGraphView'), {
+  ssr: false,
+});
 
 export default function Home() {
   const { activePage } = useStore();

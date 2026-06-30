@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import cytoscape from 'cytoscape';
 import { api } from '@/lib/api';
 import { 
   Play, 
@@ -31,11 +32,11 @@ export default function AttackGraphView() {
   // Dynamically import Cytoscape on the client side
   useEffect(() => {
     let active = true;
+    let timer: any;
     
     const initGraph = async () => {
       try {
         setLoading(true);
-        const cytoscape = (await import('cytoscape')).default;
         
         // Fetch current topology
         const topRes = await api.getTopology();
@@ -44,154 +45,168 @@ export default function AttackGraphView() {
         setNodes(topRes.nodes || []);
         setEdges(topRes.edges || []);
         
-        if (!containerRef.current) return;
-        
-        // Convert to cytoscape element format
-        const cyElements = [
-          ...(topRes.nodes || []).map((n: any) => ({
-            data: { 
-              id: n.id, 
-              label: `${n.label}\n${n.id.substring(0, 8)}`, 
-              type: n.label,
-              ...n.properties 
-            }
-          })),
-          ...(topRes.edges || []).map((e: any) => ({
-            data: { 
-              id: e.id, 
-              source: e.source, 
-              target: e.target, 
-              label: e.type,
-              type: e.type,
-              ...e.properties 
-            }
-          }))
-        ];
-
-        // Initialize cytoscape instance
-        const cy = cytoscape({
-          container: containerRef.current,
-          elements: cyElements,
-          style: [
-            {
-              selector: 'node',
-              style: {
-                'label': 'data(label)',
-                'color': '#cbd5e1',
-                'font-size': '8px',
-                'text-valign': 'bottom',
-                'text-margin-y': 4,
-                'background-color': '#1e293b',
-                'border-width': 1.5,
-                'border-color': '#475569',
-                'width': 30,
-                'height': 30,
-                'transition-property': 'background-color, border-color, border-width',
-                'transition-duration': 0.3
-              }
-            },
-            {
-              selector: 'node[type = "Host"]',
-              style: {
-                'background-color': '#1d4ed8',
-                'border-color': '#3b82f6',
-                'shape': 'ellipse'
-              }
-            },
-            {
-              selector: 'node[type = "User"]',
-              style: {
-                'background-color': '#6d28d9',
-                'border-color': '#8b5cf6',
-                'shape': 'round-rectangle'
-              }
-            },
-            {
-              selector: 'node[type = "Asset"]',
-              style: {
-                'background-color': '#be185d',
-                'border-color': '#ec4899',
-                'shape': 'diamond',
-                'width': 34,
-                'height': 34
-              }
-            },
-            {
-              selector: 'node[type = "IP"]',
-              style: {
-                'background-color': '#0f766e',
-                'border-color': '#14b8a6',
-                'shape': 'hexagon'
-              }
-            },
-            {
-              selector: 'edge',
-              style: {
-                'line-color': '#334155',
-                'target-arrow-color': '#334155',
-                'target-arrow-shape': 'triangle',
-                'width': 1,
-                'curve-style': 'bezier',
-                'font-size': '6px',
-                'color': '#64748b',
-                'label': 'data(label)',
-                'text-background-opacity': 0.7,
-                'text-background-color': '#0f172a',
-                'text-background-padding': '2px',
-                'transition-property': 'line-color, width',
-                'transition-duration': 0.3
-              }
-            },
-            {
-              selector: 'edge[type = "SIMULATED_ATTACK"]',
-              style: {
-                'line-color': '#ef4444',
-                'target-arrow-color': '#ef4444',
-                'width': 2.5,
-                'line-style': 'dashed'
-              }
-            },
-            {
-              selector: ':selected',
-              style: {
-                'border-color': '#fbbf24',
-                'border-width': 3,
-                'line-color': '#fbbf24',
-                'target-arrow-color': '#fbbf24'
-              }
-            }
-          ],
-          layout: {
-            name: 'cose',
-            idealEdgeLength: 100,
-            nodeOverlap: 20,
-            refresh: 20,
-            fit: true,
-            padding: 30,
-            randomize: false,
-            componentSpacing: 100,
-            nodeRepulsion: 400000,
-            edgeElasticity: 100,
-            nestingFactor: 5,
-            gravity: 80,
-            numIter: 1000,
-            initialTemp: 200,
-            coolingFactor: 0.95,
-            minTemp: 1.0
+        // Delay graph creation slightly to ensure container is fully bound and visible in the DOM
+        timer = setTimeout(() => {
+          if (!containerRef.current || !active) {
+            console.warn("Container ref is not ready or inactive");
+            return;
           }
-        });
+          
+          // Convert to cytoscape element format
+          const cyElements = [
+            ...(topRes.nodes || []).map((n: any) => ({
+              data: { 
+                id: n.id, 
+                label: `${n.label}\n${n.id.substring(0, 8)}`, 
+                type: n.label,
+                ...n.properties 
+              }
+            })),
+            ...(topRes.edges || []).map((e: any) => ({
+              data: { 
+                id: e.id, 
+                source: e.source, 
+                target: e.target, 
+                label: e.type,
+                type: e.type,
+                ...e.properties 
+              }
+            }))
+          ];
 
-        cy.on('tap', 'node', (evt: any) => {
-          const node = evt.target;
-          setSelectedNode({
-            id: node.id(),
-            label: node.data('type'),
-            properties: node.data()
+          console.log("[AttackGraph] Initializing Cytoscape with elements:", cyElements);
+
+          // Initialize cytoscape instance
+          const cy = cytoscape({
+            container: containerRef.current,
+            elements: cyElements,
+            style: [
+              {
+                selector: 'node',
+                style: {
+                  'label': 'data(label)',
+                  'color': '#cbd5e1',
+                  'font-size': '8px',
+                  'text-valign': 'bottom',
+                  'text-margin-y': 4,
+                  'background-color': '#1e293b',
+                  'border-width': 1.5,
+                  'border-color': '#475569',
+                  'width': 30,
+                  'height': 30,
+                  'transition-property': 'background-color, border-color, border-width',
+                  'transition-duration': 0.3
+                }
+              },
+              {
+                selector: 'node[type = "Host"]',
+                style: {
+                  'background-color': '#1d4ed8',
+                  'border-color': '#3b82f6',
+                  'shape': 'ellipse'
+                }
+              },
+              {
+                selector: 'node[type = "User"]',
+                style: {
+                  'background-color': '#6d28d9',
+                  'border-color': '#8b5cf6',
+                  'shape': 'round-rectangle'
+                }
+              },
+              {
+                selector: 'node[type = "Asset"]',
+                style: {
+                  'background-color': '#be185d',
+                  'border-color': '#ec4899',
+                  'shape': 'diamond',
+                  'width': 34,
+                  'height': 34
+                }
+              },
+              {
+                selector: 'node[type = "IP"]',
+                style: {
+                  'background-color': '#0f766e',
+                  'border-color': '#14b8a6',
+                  'shape': 'hexagon'
+                }
+              },
+              {
+                selector: 'edge',
+                style: {
+                  'line-color': '#334155',
+                  'target-arrow-color': '#334155',
+                  'target-arrow-shape': 'triangle',
+                  'width': 1,
+                  'curve-style': 'bezier',
+                  'font-size': '6px',
+                  'color': '#64748b',
+                  'label': 'data(label)',
+                  'text-background-opacity': 0.7,
+                  'text-background-color': '#0f172a',
+                  'text-background-padding': '2px',
+                  'transition-property': 'line-color, width',
+                  'transition-duration': 0.3
+                }
+              },
+              {
+                selector: 'edge[type = "SIMULATED_ATTACK"]',
+                style: {
+                  'line-color': '#ef4444',
+                  'target-arrow-color': '#ef4444',
+                  'width': 2.5,
+                  'line-style': 'dashed'
+                }
+              },
+              {
+                selector: ':selected',
+                style: {
+                  'border-color': '#fbbf24',
+                  'border-width': 3,
+                  'line-color': '#fbbf24',
+                  'target-arrow-color': '#fbbf24'
+                }
+              }
+            ],
+            layout: {
+              name: 'cose',
+              idealEdgeLength: 100,
+              nodeOverlap: 20,
+              refresh: 20,
+              fit: true,
+              padding: 30,
+              randomize: false,
+              componentSpacing: 100,
+              nodeRepulsion: 400000,
+              edgeElasticity: 100,
+              nestingFactor: 5,
+              gravity: 80,
+              numIter: 1000,
+              initialTemp: 200,
+              coolingFactor: 0.95,
+              minTemp: 1.0
+            }
           });
-        });
 
-        cyRef.current = cy;
-        setLogs(prev => ['Graph: Digital Twin topology loaded from Neo4j.', ...prev]);
+          cy.on('tap', 'node', (evt: any) => {
+            const node = evt.target;
+            setSelectedNode({
+              id: node.id(),
+              label: node.data('type'),
+              properties: node.data()
+            });
+          });
+
+          cyRef.current = cy;
+          
+          // Force proper dimensions and sizing
+          cy.resize();
+          cy.fit();
+          
+          setLogs(prev => ['Graph: Digital Twin topology loaded from Neo4j.', ...prev]);
+        }, 300);
+        
       } catch (err) {
         console.error('Failed to init cytoscape:', err);
         setLogs(prev => ['Graph Error: Neo4j engine offline. Operating in mocked client view.', ...prev]);
@@ -203,6 +218,7 @@ export default function AttackGraphView() {
     initGraph();
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
       if (cyRef.current) cyRef.current.destroy();
     };
   }, []);
@@ -309,13 +325,13 @@ export default function AttackGraphView() {
     <div className="h-[calc(100vh-4rem)] flex overflow-hidden">
       
       {/* Topology Canvas */}
-      <div className="flex-1 bg-slate-950 relative border-r border-slate-800">
+      <div className="flex-1 h-full bg-slate-950 relative border-r border-slate-800">
         {loading && (
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-20 flex items-center justify-center">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
           </div>
         )}
-        <div ref={containerRef} className="h-full w-full" />
+        <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: '500px', display: 'block' }} />
       </div>
 
       {/* Control Panel Sidebar */}

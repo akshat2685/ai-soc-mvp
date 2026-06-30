@@ -29,24 +29,27 @@ class TokenBucketRateLimiter:
         now = time.time()
         
         try:
-            data = await self.redis.hgetall(bucket_key)
+            data = self.redis.hgetall(bucket_key)
         except Exception as e:
             logger.error(f"Redis error in rate limiter: {e}")
             return True # Fail open
             
         if not data:
-            await self.redis.hset(bucket_key, mapping={
+            self.redis.hset(bucket_key, mapping={
                 "tokens": float(self.capacity - cost),
                 "last_refill": float(now)
             })
-            await self.redis.expire(bucket_key, 3600)
+            self.redis.expire(bucket_key, 3600)
             return True
             
         try:
-            last_refill = float(data.get(b"last_refill", now))
-            tokens = float(data.get(b"tokens", self.capacity))
+            # Handle both string keys (decode_responses=True) and byte keys
+            last_refill_val = data.get("last_refill") or data.get(b"last_refill")
+            tokens_val = data.get("tokens") or data.get(b"tokens")
+            last_refill = float(last_refill_val) if last_refill_val is not None else now
+            tokens = float(tokens_val) if tokens_val is not None else self.capacity
         except (ValueError, TypeError):
-            await self.redis.delete(bucket_key)
+            self.redis.delete(bucket_key)
             return True
             
         time_passed = max(0.0, now - last_refill)
@@ -55,7 +58,7 @@ class TokenBucketRateLimiter:
         
         if tokens >= cost:
             tokens -= cost
-            await self.redis.hset(bucket_key, mapping={
+            self.redis.hset(bucket_key, mapping={
                 "tokens": float(tokens),
                 "last_refill": float(now)
             })

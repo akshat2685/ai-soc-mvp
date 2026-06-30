@@ -15,8 +15,13 @@ QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "6333"))
 COLLECTION_NAME = "soc_knowledge"
 
-# Initialize cloud embedding model (avoids downloading 5GB PyTorch locally)
-embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+_embeddings = None
+
+def get_embeddings():
+    global _embeddings
+    if _embeddings is None:
+        _embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    return _embeddings
 
 def get_qdrant_client():
     try:
@@ -58,7 +63,7 @@ def ingest_text_document(text: str, metadata: dict = None):
     qdrant = QdrantVectorStore(
         client=client,
         collection_name=COLLECTION_NAME,
-        embedding=embeddings,
+        embedding=get_embeddings(),
     )
     qdrant.add_documents(splits)
     logger.info(f"Ingested {len(splits)} chunks into Qdrant.")
@@ -73,7 +78,7 @@ def search_knowledge(query: str, top_k: int = 3):
     qdrant = QdrantVectorStore(
         client=client,
         collection_name=COLLECTION_NAME,
-        embedding=embeddings,
+        embedding=get_embeddings(),
     )
     
     results = qdrant.similarity_search(query, k=top_k)

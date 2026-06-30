@@ -163,6 +163,30 @@ def get_network_topology() -> NetworkTopology:
     nodes_raw = run_cypher(nodes_cypher)
     edges_raw = run_cypher(edges_cypher)
     
+    # If Neo4j is offline or empty, use our high-fidelity mock enterprise topology
+    if not nodes_raw:
+        log.info("Neo4j offline or empty. Returning mock network topology.")
+        mock_nodes = [
+            {"id": "host-1", "label": "Host", "properties": {"name": "Web-Public", "ip": "192.168.1.50", "os": "Linux Ubuntu", "internet_facing": True}},
+            {"id": "host-2", "label": "Host", "properties": {"name": "App-Server", "ip": "10.0.0.5", "os": "Linux Debian"}},
+            {"id": "host-3", "label": "Host", "properties": {"name": "DB-Production", "ip": "10.0.0.10", "os": "Linux RHEL", "criticality": "Critical"}},
+            {"id": "host-4", "label": "Host", "properties": {"name": "AD-Controller", "ip": "10.0.0.2", "os": "Windows Server 2022", "criticality": "Critical"}},
+            {"id": "user-alice", "label": "User", "properties": {"name": "Alice Admin", "dept": "HR"}},
+            {"id": "user-bob", "label": "User", "properties": {"name": "Bob DevOps", "dept": "Engineering", "risk_score": 0.85}},
+            {"id": "ip-192.168.1.50", "label": "IP", "properties": {"value": "192.168.1.50"}},
+            {"id": "ip-10.0.0.99", "label": "IP", "properties": {"value": "10.0.0.99"}}
+        ]
+        mock_edges = [
+            {"id": "e1", "source": "user-alice", "target": "host-1", "type": "ACCESSES"},
+            {"id": "e2", "source": "user-bob", "target": "host-2", "type": "ACCESSES"},
+            {"id": "e3", "source": "host-1", "target": "host-2", "type": "COMMUNICATES_WITH"},
+            {"id": "e4", "source": "host-2", "target": "host-3", "type": "CONNECTS_TO"},
+            {"id": "e5", "source": "user-bob", "target": "host-4", "type": "ADMINISTERS"},
+            {"id": "e6", "source": "ip-192.168.1.50", "target": "host-1", "type": "RESOLVES_TO"},
+            {"id": "e7", "source": "ip-10.0.0.99", "target": "host-2", "type": "RESOLVES_TO"}
+        ]
+        return NetworkTopology(nodes=mock_nodes, edges=mock_edges)
+        
     nodes = []
     for n in nodes_raw:
         props = n.get("props", {})

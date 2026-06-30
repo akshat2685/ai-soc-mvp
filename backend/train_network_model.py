@@ -6,9 +6,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 import joblib
-import boto3
-from botocore import UNSIGNED
-from botocore.config import Config
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "ml_models")
 os.makedirs(MODELS_DIR, exist_ok=True)
@@ -22,6 +19,10 @@ def download_dataset():
         
     print("Downloading CSE-CIC-IDS2018 dataset from AWS S3... (This may take a few minutes)")
     try:
+        import boto3
+        from botocore import UNSIGNED
+        from botocore.config import Config
+        
         s3 = boto3.client('s3', region_name='ca-central-1', config=Config(signature_version=UNSIGNED))
         bucket_name = 'cse-cic-ids2018'
         object_key = 'Processed Traffic Data for ML Algorithms/Thursday-15-02-2018_TrafficForML_CICFlowMeter.csv'

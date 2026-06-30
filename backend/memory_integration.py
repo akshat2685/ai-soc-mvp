@@ -49,14 +49,14 @@ def ingest_incident_from_soc(incident: dict[str, Any]) -> str | None:
 
 
 def record_outcome(
-    incident_id: str, verdict: str, iocs_seen: list[dict[str, Any]] | None = None
+    incident_id: str, verdict: str, iocs_seen: list[dict[str, Any]] | None = None, **kwargs
 ) -> dict[str, Any]:
     """Record an investigation outcome so the platform learns from it."""
     try:
         from backend.memory.engines import learning
 
         return learning.record_outcome(
-            incident_id=incident_id, verdict=verdict, iocs_seen=iocs_seen or []
+            incident_id=incident_id, verdict=verdict, iocs_seen=iocs_seen or [], **kwargs
         )
     except Exception as e:
         log.warning("memory learning failed: %s", e)

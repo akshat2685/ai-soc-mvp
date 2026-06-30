@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soc-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: soc-backend
+  template:
+    metadata:
+      labels:
+        app: soc-backend
+    spec:
+      containers:
+      - env:
+        - name: DATABASE_URL
+          value: postgresql://soc_user:soc_password@postgres:5432/soc_db
+        - name: NEO4J_URI
+          value: bolt://neo4j:7687
+        - name: NEO4J_USER
+          value: neo4j
+        - name: NEO4J_PASSWORD
+          value: soc_password
+        - name: QDRANT_URL
+          value: http://qdrant:6333
+        - name: REDIS_URL
+          value: redis://redis:6379
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: kafka:9092
+        - name: CLICKHOUSE_HOST
+          value: clickhouse
+        image: edysor-backend:latest
+        imagePullPolicy: IfNotPresent
+        name: soc-backend
+        ports:
+        - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: soc-backend
+spec:
+  ports:
+  - name: port-8000
+    port: 8000
+    targetPort: 8000
+  selector:
+    app: soc-backend

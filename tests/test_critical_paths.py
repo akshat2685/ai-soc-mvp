@@ -19,13 +19,12 @@ def client():
 
 @pytest.fixture
 def redis_mock():
-    """Mock Redis client for async usage in actual tests, or sync for synchronous mocks."""
+    """Mock Redis client for sync usage in tests."""
     mock = MagicMock()
-    # If the method is awaited in the codebase, we need AsyncMock.
-    mock.hgetall = AsyncMock()
-    mock.hset = AsyncMock()
-    mock.expire = AsyncMock()
-    mock.delete = AsyncMock()
+    mock.hgetall = MagicMock()
+    mock.hset = MagicMock()
+    mock.expire = MagicMock()
+    mock.delete = MagicMock()
     return mock
 
 

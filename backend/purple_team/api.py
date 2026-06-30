@@ -60,16 +60,25 @@ async def get_coverage_score(user: dict = Depends(require_auth)):
     try:
         with get_db() as conn:
             # Count distinct technique IDs that have been validated and detected
-            total_sims_cur = conn.execute("SELECT COUNT(DISTINCT name) as c FROM simulations WHERE name LIKE 'Purple Team validation:%'")
-            total_sims = total_sims_cur.fetchone()['c']
+            try:
+                total_sims_cur = conn.execute("SELECT COUNT(DISTINCT name) as c FROM simulations WHERE name LIKE 'Purple Team validation:%'")
+                total_sims = total_sims_cur.fetchone()['c']
+            except Exception:
+                total_sims = 0
             
             # Simple heuristic calculations for coverage, quality, and detection speed
-            detected_cur = conn.execute("SELECT COUNT(*) as c FROM evaluations WHERE sim_id IN (SELECT sim_id FROM simulations WHERE name LIKE 'Purple Team validation:%') AND precision > 0.5")
-            detected_count = detected_cur.fetchone()['c']
+            try:
+                detected_cur = conn.execute("SELECT COUNT(*) as c FROM evaluations WHERE sim_id IN (SELECT sim_id FROM simulations WHERE name LIKE 'Purple Team validation:%') AND precision > 0.5")
+                detected_count = detected_cur.fetchone()['c']
+            except Exception:
+                detected_count = 0
             
             # Average detection speed
-            mttd_cur = conn.execute("SELECT AVG(mttd) as avg_mttd FROM evaluations WHERE sim_id IN (SELECT sim_id FROM simulations WHERE name LIKE 'Purple Team validation:%') AND mttd > 0.0")
-            avg_mttd = mttd_cur.fetchone()['avg_mttd'] or 0.0
+            try:
+                mttd_cur = conn.execute("SELECT AVG(mttd) as avg_mttd FROM evaluations WHERE sim_id IN (SELECT sim_id FROM simulations WHERE name LIKE 'Purple Team validation:%') AND mttd > 0.0")
+                avg_mttd = mttd_cur.fetchone()['avg_mttd'] or 0.0
+            except Exception:
+                avg_mttd = 0.0
             
         coverage_score = round(detected_count / max(1, total_sims), 4)
         

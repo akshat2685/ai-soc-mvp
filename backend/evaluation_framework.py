@@ -64,7 +64,7 @@ def run_evaluation():
     accuracy = (matches / total) * 100
     
     for r in results:
-        status = "✅ PASS" if r["match"] else "❌ FAIL"
+        status = "[PASS]" if r["match"] else "[FAIL]"
         print(f"{r['test_id']} - {status} (Expected: {r['expected']}, Got: {r['predicted']} | {r['latency_sec']}s)")
         
     print(f"\nOverall Accuracy: {accuracy:.1f}%")

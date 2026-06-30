@@ -97,6 +97,23 @@ cd backend
 pytest tests/
 ```
 
+### 🏆 8-Phase Master Validation Suite
+EDYSOR includes a fully autonomous, adversarial Master Test Orchestrator (`run_tests.py`) designed to validate the architecture under duress. 
+It covers 48 distinct tests across 8 security phases:
+1. **Security Gate**: Blocks SQLi/JNDI/JSON bombs.
+2. **Digital Twin**: Tests Neo4j blast radius and topology simulation.
+3. **AI Society**: Validates Copilot chat, investigation delegation, and XAI bounds.
+4. **SOAR**: Executes mock playbooks and tests bash injection protections.
+5. **AI Safety**: Enforces safety bounds against Prompt Injections (DAN).
+6. **Learning Engine**: Tests DPO alignment, feedback processing, and model training.
+7. **Resilience**: Simulates Kubernetes pod chaos and Purple Team validation.
+8. **Performance**: Load tests API latency and concurrent stress (Avg Latency < 50ms).
+
+To run the master suite against the live cluster:
+```bash
+python backend/tests/edysor_orchestrator/run_tests.py
+```
+
 ## 🔐 Security & RBAC
 
 EDYSOR implements strict Attribute-Based and Role-Based Access Control (RBAC). 
